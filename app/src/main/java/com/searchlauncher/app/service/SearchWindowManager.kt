@@ -73,6 +73,7 @@ class SearchWindowManager(private val context: Context, private val windowManage
 
         // Reset query state
         queryState.value = ""
+        var topResult: SearchResult? = null
 
         // 1. Container
         val rootLayout = FrameLayout(context)
@@ -115,6 +116,25 @@ class SearchWindowManager(private val context: Context, private val windowManage
                                     context.getSystemService(Context.INPUT_METHOD_SERVICE) as
                                             InputMethodManager
                             imm.hideSoftInputFromWindow(windowToken, 0)
+
+                            // Launch top result if available
+                            topResult?.let {
+                                if (it is SearchResult.SearchIntent) {
+                                    // For intents, we update the query instead of launching
+                                    // But since we are in the listener, updating EditText is tricky
+                                    // if we want to keep keyboard open
+                                    // Actually, user pressed Enter, so they probably expect action.
+                                    // If it's an intent discovery, maybe we should just "select"
+                                    // it.
+                                    // Let's update the text.
+                                    setText(it.trigger + " ")
+                                    setSelection(text.length)
+                                    // Don't hide UI
+                                } else {
+                                    launchResult(context, it)
+                                    hide()
+                                }
+                            }
                             true
                         } else false
                     }
@@ -147,7 +167,8 @@ class SearchWindowManager(private val context: Context, private val windowManage
                                             InputMethodManager.SHOW_IMPLICIT
                                     )
                                 },
-                                searchRepository = searchRepository
+                                searchRepository = searchRepository,
+                                onTopResultChange = { result -> topResult = result }
                         )
                     }
                 }
@@ -238,7 +259,8 @@ class SearchWindowManager(private val context: Context, private val windowManage
             onQueryChange: (String) -> Unit,
             onDismiss: () -> Unit,
             onFocusRequest: () -> Unit,
-            searchRepository: SearchRepository
+            searchRepository: SearchRepository,
+            onTopResultChange: (SearchResult?) -> Unit
     ) {
         val query = queryState.value
         var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
@@ -252,9 +274,10 @@ class SearchWindowManager(private val context: Context, private val windowManage
             if (query.isEmpty()) {
                 searchResults = searchRepository.searchApps("")
             } else {
-                delay(300) // Debounce
+                delay(50) // Debounce
                 searchResults = searchRepository.searchApps(query)
             }
+            onTopResultChange(searchResults.firstOrNull())
         }
 
         Box(
@@ -340,8 +363,12 @@ class SearchWindowManager(private val context: Context, private val windowManage
                                 SearchResultItem(
                                         result = result,
                                         onClick = {
-                                            launchResult(context, result)
-                                            onDismiss()
+                                            if (result is SearchResult.SearchIntent) {
+                                                onQueryChange(result.trigger + " ")
+                                            } else {
+                                                launchResult(context, result)
+                                                onDismiss()
+                                            }
                                         }
                                 )
                             }
@@ -439,6 +466,13 @@ class SearchWindowManager(private val context: Context, private val windowManage
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
+            }
+            is SearchResult.SearchIntent -> {
+                // Handled in UI callback, but we need to pass the callback down or handle it here
+                // if we have access to state
+                // launchResult doesn't have access to onQueryChange.
+                // We need to refactor SearchResultItem onClick to handle this specific case in
+                // SearchUI
             }
         }
     }

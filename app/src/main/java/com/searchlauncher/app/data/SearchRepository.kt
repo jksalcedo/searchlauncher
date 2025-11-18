@@ -3,7 +3,6 @@ package com.searchlauncher.app.data
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
 import androidx.appsearch.app.AppSearchSession
 import androidx.appsearch.app.PutDocumentsRequest
 import androidx.appsearch.app.SearchSpec
@@ -70,13 +69,37 @@ class SearchRepository(private val context: Context) {
                                                 resolveInfo.loadLabel(packageManager).toString()
                                         val packageName = resolveInfo.activityInfo.packageName
 
+                                        // Get category
+                                        val category =
+                                                if (android.os.Build.VERSION.SDK_INT >=
+                                                                android.os.Build.VERSION_CODES.O
+                                                ) {
+                                                    val appInfo =
+                                                            resolveInfo.activityInfo.applicationInfo
+                                                    when (appInfo.category) {
+                                                        ApplicationInfo.CATEGORY_GAME -> "Game"
+                                                        ApplicationInfo.CATEGORY_AUDIO -> "Audio"
+                                                        ApplicationInfo.CATEGORY_VIDEO -> "Video"
+                                                        ApplicationInfo.CATEGORY_IMAGE -> "Image"
+                                                        ApplicationInfo.CATEGORY_SOCIAL -> "Social"
+                                                        ApplicationInfo.CATEGORY_NEWS -> "News"
+                                                        ApplicationInfo.CATEGORY_MAPS -> "Maps"
+                                                        ApplicationInfo.CATEGORY_PRODUCTIVITY ->
+                                                                "Productivity"
+                                                        else -> "Application"
+                                                    }
+                                                } else {
+                                                    "Application"
+                                                }
+
                                         AppSearchDocument(
                                                 namespace = "apps",
                                                 id = packageName,
                                                 name = appName,
-                                                score = 2 // Apps have higher priority than
+                                                score = 2, // Apps have higher priority than
                                                 // shortcuts
-                                                )
+                                                description = category
+                                        )
                                     } catch (e: Exception) {
                                         null
                                     }
@@ -140,7 +163,8 @@ class SearchRepository(private val context: Context) {
                                             name = shortcut.shortLabel?.toString()
                                                             ?: shortcut.longLabel?.toString() ?: "",
                                             score = 1,
-                                            intentUri = intent
+                                            intentUri = intent,
+                                            description = "Shortcut"
                                     )
                             )
                         } catch (e: Exception) {
@@ -165,128 +189,136 @@ class SearchRepository(private val context: Context) {
 
     suspend fun searchApps(query: String): List<SearchResult> =
             withContext(Dispatchers.IO) {
-                android.util.Log.d("SearchRepository", "searchApps: Query='$query'")
-                val session = appSearchSession ?: return@withContext emptyList()
-                val packageManager = context.packageManager
-                val launcherApps =
-                        context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as
-                                android.content.pm.LauncherApps
+                val startTime = System.currentTimeMillis()
+                val session = appSearchSession
+                if (session == null) {
+                    android.util.Log.w("SearchRepository", "Session not initialized")
+                    return@withContext emptyList()
+                }
 
-                val searchSpec =
-                        SearchSpec.Builder()
-                                .setSnippetCount(1)
-                                .setRankingStrategy(SearchSpec.RANKING_STRATEGY_DOCUMENT_SCORE)
-                                .build()
-
-                val searchResults = session.search(query, searchSpec)
                 val results = mutableListOf<SearchResult>()
 
-                var nextPage = searchResults.nextPageAsync.get()
-                while (nextPage.isNotEmpty()) {
-                    for (result in nextPage) {
-                        val doc =
-                                result.genericDocument.toDocumentClass(
-                                        AppSearchDocument::class.java
+                try {
+                    val searchSpec =
+                            SearchSpec.Builder()
+                                    .setRankingStrategy(SearchSpec.RANKING_STRATEGY_DOCUMENT_SCORE)
+                                    .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
+                                    .build()
+
+                    val searchResults = session.search(query, searchSpec)
+                    var nextPage = searchResults.nextPageAsync.get()
+
+                    while (nextPage.isNotEmpty()) {
+                        for (result in nextPage) {
+                            val doc =
+                                    result.genericDocument.toDocumentClass(
+                                            AppSearchDocument::class.java
+                                    )
+                            val packageName = doc.id
+
+                            // Check namespace to distinguish between apps and shortcuts
+                            if (result.genericDocument.namespace == "shortcuts") {
+                                results.add(
+                                        SearchResult.Shortcut(
+                                                id = doc.id,
+                                                title = doc.name,
+                                                subtitle = doc.description ?: "Shortcut",
+                                                icon = null, // Shortcuts might not have easily
+                                                // accessible icons
+                                                packageName = doc.id.split("/").firstOrNull() ?: "",
+                                                intentUri = doc.intentUri ?: ""
+                                        )
                                 )
-                        android.util.Log.d(
-                                "SearchRepository",
-                                "searchApps: Found doc ${doc.id} in namespace ${doc.namespace}"
-                        )
-                        if (doc.namespace == "apps") {
-                            try {
-                                val icon = packageManager.getApplicationIcon(doc.id)
+                            } else {
+                                // It's an app
+                                val icon =
+                                        try {
+                                            context.packageManager.getApplicationIcon(packageName)
+                                        } catch (e: Exception) {
+                                            null
+                                        }
+
                                 results.add(
                                         SearchResult.App(
                                                 id = doc.id,
                                                 title = doc.name,
-                                                subtitle = doc.id,
+                                                subtitle = doc.description ?: doc.id,
                                                 icon = icon,
                                                 packageName = doc.id
                                         )
                                 )
-                            } catch (e: PackageManager.NameNotFoundException) {
-                                // App might have been uninstalled
                             }
-                        } else if (doc.namespace == "shortcuts") {
-                            try {
-                                // Parse ID: shortcut://<package>/<id>
-                                // Actually we stored doc.id as <package>/<id>
-                                val parts = doc.id.split("/")
-                                if (parts.size == 2) {
-                                    val pkg = parts[0]
-                                    val id = parts[1]
+                        }
+                        nextPage = searchResults.nextPageAsync.get()
+                    }
 
-                                    // To get icon we need to query LauncherApps again or cache it.
-                                    // For now, let's try to get it.
-                                    // This might be slow in a loop, ideally we cache or load
-                                    // lazily.
-                                    // For MVP, let's use app icon or generic icon.
-                                    val appIcon =
-                                            try {
-                                                packageManager.getApplicationIcon(pkg)
-                                            } catch (e: Exception) {
-                                                null
-                                            }
+                    // 1. Check for custom shortcuts (Direct use: "g test")
+                    if (query.isNotEmpty()) {
+                        val parts = query.split(" ", limit = 2)
+                        if (parts.size >= 2) {
+                            val trigger = parts[0]
+                            val searchTerm = parts[1]
+                            val shortcut = CustomShortcuts.shortcuts.find { it.trigger == trigger }
 
-                                    results.add(
-                                            SearchResult.Shortcut(
-                                                    id = doc.id,
-                                                    title = doc.name,
-                                                    subtitle = "Action", // Could be app name
-                                                    icon = appIcon, // Placeholder
-                                                    packageName = pkg,
-                                                    intentUri = doc.intentUri ?: ""
-                                            )
-                                    )
+                            if (shortcut != null) {
+                                val url =
+                                        String.format(
+                                                shortcut.urlTemplate,
+                                                java.net.URLEncoder.encode(searchTerm, "UTF-8")
+                                        )
+                                results.add(
+                                        0, // Add to top
+                                        SearchResult.Content(
+                                                id = "shortcut_${shortcut.trigger}",
+                                                title = "${shortcut.description}: $searchTerm",
+                                                subtitle = "Custom Shortcut",
+                                                icon = null, // TODO: Add icon
+                                                packageName = shortcut.packageName ?: "android",
+                                                deepLink = url
+                                        )
+                                )
+                            }
+                        }
+
+                        // 2. Discover intents (Search for "youtube" -> show "yt" shortcut)
+                        val matchingShortcuts =
+                                CustomShortcuts.shortcuts.filter {
+                                    it.description.contains(query, ignoreCase = true) ||
+                                            it.trigger.contains(query, ignoreCase = true)
                                 }
-                            } catch (e: Exception) {
-                                // Ignore
-                            }
-                        }
-                    }
-                    nextPage = searchResults.nextPageAsync.get()
-                }
 
-                // Add "Search in Browser" action
-                if (query.isNotEmpty()) {
-                    // Check for custom shortcuts
-                    val parts = query.split(" ", limit = 2)
-                    if (parts.size >= 2) {
-                        val trigger = parts[0]
-                        val searchTerm = parts[1]
-                        val shortcut = CustomShortcuts.shortcuts.find { it.trigger == trigger }
-
-                        if (shortcut != null) {
-                            val url =
-                                    String.format(
-                                            shortcut.urlTemplate,
-                                            java.net.URLEncoder.encode(searchTerm, "UTF-8")
-                                    )
+                        for (shortcut in matchingShortcuts) {
                             results.add(
-                                    0, // Add to top
-                                    SearchResult.Content(
-                                            id = "shortcut_${shortcut.trigger}",
-                                            title = "${shortcut.description}: $searchTerm",
-                                            subtitle = "Custom Shortcut",
-                                            icon = null, // TODO: Add icon
-                                            packageName = shortcut.packageName ?: "android",
-                                            deepLink = url
+                                    SearchResult.SearchIntent(
+                                            id = "intent_${shortcut.trigger}",
+                                            title = "Use ${shortcut.description}",
+                                            subtitle = "Type '${shortcut.trigger} ' to search",
+                                            icon = null,
+                                            trigger = shortcut.trigger
                                     )
                             )
                         }
-                    }
 
-                    results.add(
-                            SearchResult.Content(
-                                    id = "web_search",
-                                    title = "Search \"$query\" in Browser",
-                                    subtitle = "Web Search",
-                                    icon = null, // TODO: Add browser icon
-                                    packageName = "android",
-                                    deepLink = "https://www.google.com/search?q=$query"
-                            )
-                    )
+                        results.add(
+                                SearchResult.Content(
+                                        id = "web_search",
+                                        title = "Search \"$query\" in Browser",
+                                        subtitle = "Web Search",
+                                        icon = null, // TODO: Add browser icon
+                                        packageName = "android",
+                                        deepLink = "https://www.google.com/search?q=$query"
+                                )
+                        )
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
+
+                val duration = System.currentTimeMillis() - startTime
+                android.util.Log.d(
+                        "SearchRepository",
+                        "searchApps: took $duration ms for query '$query'"
+                )
 
                 results
             }
