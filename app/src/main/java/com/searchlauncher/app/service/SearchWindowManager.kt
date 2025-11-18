@@ -1,16 +1,20 @@
 package com.searchlauncher.app.service
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.PixelFormat
 import android.os.Build
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
-import android.widget.LinearLayout
+import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -25,20 +29,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleRegistry
-import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.setViewTreeLifecycleOwner
-import androidx.savedstate.SavedStateRegistry
-import androidx.savedstate.SavedStateRegistryController
-import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
@@ -48,19 +44,20 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class SearchWindowManager(
-    private val context: Context,
-    private val windowManager: WindowManager
-) {
+class SearchWindowManager(private val context: Context, private val windowManager: WindowManager) {
     private var searchView: View? = null
     private var lifecycleOwner: MyLifecycleOwner? = null
     private val searchRepository = SearchRepository(context)
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
+    private var closeSystemDialogsReceiver: BroadcastReceiver? = null
+
+    // State for the proxy input
+    private var hiddenEditText: EditText? = null
+    private var queryState = mutableStateOf("")
+
     init {
-        scope.launch {
-            searchRepository.initialize()
-        }
+        scope.launch { searchRepository.initialize() }
     }
 
     fun show() {
@@ -71,46 +68,159 @@ class SearchWindowManager(
         lifecycleOwner?.onStart()
         lifecycleOwner?.onResume()
 
-        val composeView = ComposeView(context).apply {
-            setViewTreeLifecycleOwner(lifecycleOwner)
-            setViewTreeSavedStateRegistryOwner(lifecycleOwner)
+        // Reset query state
+        queryState.value = ""
 
-            isFocusable = true
-            isFocusableInTouchMode = true
+        // 1. Container
+        val rootLayout = FrameLayout(context)
+        rootLayout.setViewTreeLifecycleOwner(lifecycleOwner)
+        rootLayout.setViewTreeSavedStateRegistryOwner(lifecycleOwner)
 
-            setContent {
-                SearchUI(
-                    onDismiss = { hide() },
-                    searchRepository = searchRepository
-                )
-            }
-        }
+        // 2. Hidden EditText (The actual input receiver)
+        hiddenEditText =
+                EditText(context).apply {
+                    layoutParams = FrameLayout.LayoutParams(1, 1)
+                    alpha = 0f
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT
+                    imeOptions = EditorInfo.IME_ACTION_SEARCH
+                    isFocusable = true
+                    isFocusableInTouchMode = true
 
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            } else {
-                WindowManager.LayoutParams.TYPE_PHONE
-            },
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_DIM_BEHIND,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP
-            dimAmount = 0.5f
-            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-        }
+                    addTextChangedListener(
+                            object : TextWatcher {
+                                override fun beforeTextChanged(
+                                        s: CharSequence?,
+                                        start: Int,
+                                        count: Int,
+                                        after: Int
+                                ) {}
+                                override fun onTextChanged(
+                                        s: CharSequence?,
+                                        start: Int,
+                                        before: Int,
+                                        count: Int
+                                ) {
+                                    queryState.value = s?.toString() ?: ""
+                                }
+                                override fun afterTextChanged(s: Editable?) {}
+                            }
+                    )
 
-        windowManager.addView(composeView, params)
-        searchView = composeView
+                    setOnEditorActionListener { _, actionId, _ ->
+                        if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                            val imm =
+                                    context.getSystemService(Context.INPUT_METHOD_SERVICE) as
+                                            InputMethodManager
+                            imm.hideSoftInputFromWindow(windowToken, 0)
+                            true
+                        } else false
+                    }
+                }
+        rootLayout.addView(hiddenEditText)
+
+        // 3. ComposeView (The UI)
+        val composeView =
+                ComposeView(context).apply {
+                    setViewTreeLifecycleOwner(lifecycleOwner)
+                    setViewTreeSavedStateRegistryOwner(lifecycleOwner)
+
+                    setContent {
+                        SearchUI(
+                                queryState = queryState,
+                                onQueryChange = { newText ->
+                                    hiddenEditText?.setText(newText)
+                                    hiddenEditText?.setSelection(newText.length)
+                                },
+                                onDismiss = { hide() },
+                                onFocusRequest = {
+                                    hiddenEditText?.requestFocus()
+                                    val imm =
+                                            context.getSystemService(
+                                                    Context.INPUT_METHOD_SERVICE
+                                            ) as
+                                                    InputMethodManager
+                                    imm.showSoftInput(
+                                            hiddenEditText,
+                                            InputMethodManager.SHOW_IMPLICIT
+                                    )
+                                },
+                                searchRepository = searchRepository
+                        )
+                    }
+                }
+        rootLayout.addView(composeView)
+
+        val params =
+                WindowManager.LayoutParams(
+                                WindowManager.LayoutParams.MATCH_PARENT,
+                                WindowManager.LayoutParams.MATCH_PARENT,
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                                } else {
+                                    WindowManager.LayoutParams.TYPE_PHONE
+                                },
+                                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                                        WindowManager.LayoutParams.FLAG_DIM_BEHIND,
+                                PixelFormat.TRANSLUCENT
+                        )
+                        .apply {
+                            gravity = Gravity.TOP
+                            dimAmount = 0.5f
+                            softInputMode =
+                                    WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
+                                            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                        }
+
+        windowManager.addView(rootLayout, params)
+        searchView = rootLayout
+
+        // Initial Focus
+        rootLayout.postDelayed(
+                {
+                    hiddenEditText?.requestFocus()
+                    val imm =
+                            context.getSystemService(Context.INPUT_METHOD_SERVICE) as
+                                    InputMethodManager
+                    imm.showSoftInput(hiddenEditText, InputMethodManager.SHOW_IMPLICIT)
+                },
+                100
+        )
+
+        // Register receiver for Home/Recents
+        closeSystemDialogsReceiver =
+                object : BroadcastReceiver() {
+                    override fun onReceive(context: Context, intent: Intent) {
+                        if (Intent.ACTION_CLOSE_SYSTEM_DIALOGS == intent.action) {
+                            hide()
+                        }
+                    }
+                }
+        context.registerReceiver(
+                closeSystemDialogsReceiver,
+                IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS),
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    Context.RECEIVER_EXPORTED
+                } else {
+                    0
+                }
+        )
     }
 
     fun hide() {
+        // Unregister receiver
+        closeSystemDialogsReceiver?.let {
+            try {
+                context.unregisterReceiver(it)
+            } catch (e: Exception) {
+                // Ignore if already unregistered
+            }
+            closeSystemDialogsReceiver = null
+        }
+
         searchView?.let {
             windowManager.removeView(it)
             searchView = null
+            hiddenEditText = null
 
             lifecycleOwner?.onPause()
             lifecycleOwner?.onStop()
@@ -121,24 +231,19 @@ class SearchWindowManager(
 
     @Composable
     private fun SearchUI(
-        onDismiss: () -> Unit,
-        searchRepository: SearchRepository
+            queryState: State<String>,
+            onQueryChange: (String) -> Unit,
+            onDismiss: () -> Unit,
+            onFocusRequest: () -> Unit,
+            searchRepository: SearchRepository
     ) {
-        var query by remember { mutableStateOf("") }
+        val query = queryState.value
         var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
         var isLoading by remember { mutableStateOf(false) }
         val context = LocalContext.current
-        val focusRequester = remember { FocusRequester() }
-        val view = androidx.compose.ui.platform.LocalView.current
 
-        LaunchedEffect(Unit) {
-            delay(100) // Give the window a moment to gain focus
-            focusRequester.requestFocus()
-
-            // Manually show keyboard
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
-        }
+        // Ensure focus is requested when UI appears
+        LaunchedEffect(Unit) { onFocusRequest() }
 
         LaunchedEffect(query) {
             if (query.isEmpty()) {
@@ -154,58 +259,62 @@ class SearchWindowManager(
         }
 
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.7f))
-                .clickable { onDismiss() }
+                modifier =
+                        Modifier.fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.7f))
+                                .clickable { onDismiss() }
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .clickable(enabled = false) { }
+                    modifier = Modifier.fillMaxWidth().padding(16.dp).clickable(enabled = false) {}
             ) {
                 // Search bar
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 3.dp
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 3.dp
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            modifier =
+                                    Modifier.fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                                            .clickable {
+                                                onFocusRequest()
+                                            }, // Redirect tap to EditText
+                            verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        TextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 8.dp)
-                                .focusRequester(focusRequester),
-                            placeholder = { Text("Search apps and content…") },
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
-                            ),
-                            singleLine = true
-                        )
+                        // Read-only TextField that mirrors the EditText state
+                        // Read-only text display that mirrors the EditText state
+                        Box(
+                                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                                contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (query.isEmpty()) {
+                                Text(
+                                        text = "Search apps and content…",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodyLarge
+                                )
+                            } else {
+                                Text(
+                                        text = query,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        style = MaterialTheme.typography.bodyLarge
+                                )
+                            }
+                        }
 
                         if (query.isNotEmpty()) {
-                            IconButton(onClick = { query = "" }) {
+                            IconButton(onClick = { onQueryChange("") }) {
                                 Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Clear"
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Clear"
                                 )
                             }
                         }
@@ -216,41 +325,35 @@ class SearchWindowManager(
 
                 // Results
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 2.dp
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 2.dp
                 ) {
                     if (isLoading) {
                         Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator()
-                        }
+                                modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                contentAlignment = Alignment.Center
+                        ) { CircularProgressIndicator() }
                     } else {
-                        LazyColumn(
-                            modifier = Modifier.heightIn(max = 500.dp)
-                        ) {
+                        LazyColumn(modifier = Modifier.heightIn(max = 500.dp)) {
                             items(searchResults) { result ->
                                 SearchResultItem(
-                                    result = result,
-                                    onClick = {
-                                        launchResult(context, result)
-                                        onDismiss()
-                                    }
+                                        result = result,
+                                        onClick = {
+                                            launchResult(context, result)
+                                            onDismiss()
+                                        }
                                 )
                             }
 
                             if (searchResults.isEmpty() && query.isNotEmpty()) {
                                 item {
                                     Text(
-                                        text = "No results found",
-                                        modifier = Modifier.padding(32.dp),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            text = "No results found",
+                                            modifier = Modifier.padding(32.dp),
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -262,37 +365,27 @@ class SearchWindowManager(
     }
 
     @Composable
-    private fun SearchResultItem(
-        result: SearchResult,
-        onClick: () -> Unit
-    ) {
+    private fun SearchResultItem(result: SearchResult, onClick: () -> Unit) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
         ) {
             // Icon would be shown here if we had a way to render Drawable in Compose
             // For now, we'll use a placeholder
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 16.dp)
-            ) {
+            Column(modifier = Modifier.weight(1f).padding(start = 16.dp)) {
                 Text(
-                    text = result.title,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
+                        text = result.title,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
                 )
 
                 result.subtitle?.let { subtitle ->
                     Text(
-                        text = subtitle,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = subtitle,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -302,7 +395,8 @@ class SearchWindowManager(
     private fun launchResult(context: Context, result: SearchResult) {
         when (result) {
             is SearchResult.App -> {
-                val launchIntent = context.packageManager.getLaunchIntentForPackage(result.packageName)
+                val launchIntent =
+                        context.packageManager.getLaunchIntentForPackage(result.packageName)
                 launchIntent?.let {
                     it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(it)
@@ -311,10 +405,11 @@ class SearchWindowManager(
             is SearchResult.Content -> {
                 // Launch deep link if available
                 result.deepLink?.let { deepLink ->
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        data = android.net.Uri.parse(deepLink)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
+                    val intent =
+                            Intent(Intent.ACTION_VIEW).apply {
+                                data = android.net.Uri.parse(deepLink)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
                     try {
                         context.startActivity(intent)
                     } catch (e: Exception) {
