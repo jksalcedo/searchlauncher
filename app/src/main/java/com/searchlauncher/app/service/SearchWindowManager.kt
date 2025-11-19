@@ -24,6 +24,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -324,186 +325,216 @@ class SearchWindowManager(private val context: Context, private val windowManage
             onTopResultChange(searchResults.firstOrNull())
         }
 
-        Box(
-                modifier =
-                        Modifier.fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.7f))
-                                .clickable { onDismiss() }
-        ) {
-            Column(
+        val darkTheme = isSystemInDarkTheme()
+        val colorScheme =
+                if (darkTheme) {
+                    darkColorScheme(
+                            surface = Color(0xFF1E1E1E),
+                            onSurface = Color.White,
+                            surfaceVariant = Color(0xFF2C2C2C),
+                            onSurfaceVariant = Color(0xFFCCCCCC)
+                    )
+                } else {
+                    lightColorScheme(
+                            surface = Color.White,
+                            onSurface = Color.Black,
+                            surfaceVariant = Color(0xFFF0F0F0),
+                            onSurfaceVariant = Color(0xFF444444)
+                    )
+                }
+
+        MaterialTheme(colorScheme = colorScheme) {
+            Box(
                     modifier =
                             Modifier.fillMaxSize()
-                                    .padding(16.dp)
-                                    .padding(
-                                            bottom = with(density) { effectiveBottomPadding.toDp() }
-                                    ),
-                    verticalArrangement = Arrangement.Bottom
+                                    .background(Color.Black.copy(alpha = 0.7f))
+                                    .clickable { onDismiss() }
             ) {
-                // Results (displayed above search bar)
-                if (searchResults.isNotEmpty() || (query.isNotEmpty() && !isLoading)) {
+                Column(
+                        modifier =
+                                Modifier.fillMaxSize()
+                                        .padding(16.dp)
+                                        .padding(
+                                                bottom =
+                                                        with(density) {
+                                                            effectiveBottomPadding.toDp()
+                                                        }
+                                        ),
+                        verticalArrangement = Arrangement.Bottom
+                ) {
+                    // Results (displayed above search bar)
+                    if (searchResults.isNotEmpty() || (query.isNotEmpty() && !isLoading)) {
+                        Surface(
+                                modifier =
+                                        Modifier.fillMaxWidth().weight(1f, fill = false).clickable(
+                                                        indication = null,
+                                                        interactionSource =
+                                                                remember {
+                                                                    MutableInteractionSource()
+                                                                }
+                                                ) {},
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 2.dp
+                        ) {
+                            if (isLoading) {
+                                Box(
+                                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                        contentAlignment = Alignment.Center
+                                ) { CircularProgressIndicator() }
+                            } else {
+                                LazyColumn(
+                                        reverseLayout = true,
+                                        contentPadding = PaddingValues(vertical = 8.dp)
+                                ) {
+                                    items(searchResults) { result ->
+                                        SearchResultItem(
+                                                result = result,
+                                                onClick = {
+                                                    if (result is SearchResult.SearchIntent) {
+                                                        onQueryChange(result.trigger + " ")
+                                                    } else {
+                                                        launchResult(context, result)
+                                                        onDismiss()
+
+                                                        // Report usage for ranking
+                                                        scope.launch {
+                                                            searchRepository.reportUsage(
+                                                                    result.namespace,
+                                                                    result.id
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                        )
+                                    }
+
+                                    if (searchResults.isEmpty() && query.isNotEmpty()) {
+                                        item {
+                                            Text(
+                                                    text = "No results found",
+                                                    modifier = Modifier.padding(32.dp),
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color =
+                                                            MaterialTheme.colorScheme
+                                                                    .onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    // Search bar (at bottom)
                     Surface(
                             modifier =
-                                    Modifier.fillMaxWidth().weight(1f, fill = false).clickable(
+                                    Modifier.fillMaxWidth().clickable(
                                                     indication = null,
                                                     interactionSource =
                                                             remember { MutableInteractionSource() }
                                             ) {},
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(28.dp),
                             color = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 2.dp
+                            tonalElevation = 3.dp
                     ) {
-                        if (isLoading) {
-                            Box(
-                                    modifier = Modifier.fillMaxWidth().padding(32.dp),
-                                    contentAlignment = Alignment.Center
-                            ) { CircularProgressIndicator() }
-                        } else {
-                            LazyColumn(reverseLayout = true) {
-                                items(searchResults) { result ->
-                                    SearchResultItem(
-                                            result = result,
-                                            onClick = {
-                                                if (result is SearchResult.SearchIntent) {
-                                                    onQueryChange(result.trigger + " ")
-                                                } else {
-                                                    launchResult(context, result)
-                                                    onDismiss()
-
-                                                    // Report usage for ranking
-                                                    scope.launch {
-                                                        searchRepository.reportUsage(
-                                                                result.namespace,
-                                                                result.id
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                    )
-                                }
-
-                                if (searchResults.isEmpty() && query.isNotEmpty()) {
-                                    item {
-                                        Text(
-                                                text = "No results found",
-                                                modifier = Modifier.padding(32.dp),
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
-                // Search bar (at bottom)
-                Surface(
-                        modifier =
-                                Modifier.fillMaxWidth().clickable(
-                                                indication = null,
-                                                interactionSource =
-                                                        remember { MutableInteractionSource() }
-                                        ) {},
-                        shape = RoundedCornerShape(28.dp),
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 3.dp
-                ) {
-                    Row(
-                            modifier =
-                                    Modifier.fillMaxWidth()
-                                            .heightIn(min = 48.dp) // Ensure constant height
-                                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                                            .clickable {
-                                                onFocusRequest()
-                                            }, // Redirect tap to EditText
-                            verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        // Read-only TextField that mirrors the EditText state
-                        // Read-only text display that mirrors the EditText state
-                        Box(
-                                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                                contentAlignment = Alignment.CenterStart
+                        Row(
+                                modifier =
+                                        Modifier.fillMaxWidth()
+                                                .heightIn(min = 48.dp) // Ensure constant height
+                                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                                .clickable {
+                                                    onFocusRequest()
+                                                }, // Redirect tap to EditText
+                                verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (query.isEmpty()) {
-                                Text(
-                                        text = "Search apps and content…",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodyLarge
-                                )
-                            } else {
-                                val shortcutMatch =
-                                        CustomShortcuts.shortcuts.filterIsInstance<
-                                                        CustomShortcut.Search>()
-                                                .find { query.startsWith("${it.trigger} ") }
+                            Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
 
-                                if (shortcutMatch != null) {
-                                    val chipColor =
-                                            if (shortcutMatch.color != null) {
-                                                Color(shortcutMatch.color.toInt())
-                                            } else {
-                                                MaterialTheme.colorScheme.primaryContainer
-                                            }
-                                    val onChipColor =
-                                            if (shortcutMatch.color != null) {
-                                                Color.White
-                                            } else {
-                                                MaterialTheme.colorScheme.onPrimaryContainer
-                                            }
-
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Surface(
-                                                color = chipColor,
-                                                shape = RoundedCornerShape(8.dp),
-                                                modifier = Modifier.padding(end = 8.dp)
-                                        ) {
-                                            Text(
-                                                    text = shortcutMatch.trigger,
-                                                    modifier =
-                                                            Modifier.padding(
-                                                                    horizontal = 8.dp,
-                                                                    vertical = 2.dp
-                                                            ),
-                                                    style = MaterialTheme.typography.labelLarge,
-                                                    color = onChipColor
-                                            )
-                                        }
-                                        Text(
-                                                text =
-                                                        query.substring(
-                                                                shortcutMatch.trigger.length + 1
-                                                        ),
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                } else {
+                            // Read-only TextField that mirrors the EditText state
+                            // Read-only text display that mirrors the EditText state
+                            Box(
+                                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                                    contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (query.isEmpty()) {
                                     Text(
-                                            text = query,
-                                            color = MaterialTheme.colorScheme.onSurface,
+                                            text = "Search apps and content…",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             style = MaterialTheme.typography.bodyLarge
                                     )
+                                } else {
+                                    val shortcutMatch =
+                                            CustomShortcuts.shortcuts.filterIsInstance<
+                                                            CustomShortcut.Search>()
+                                                    .find { query.startsWith("${it.trigger} ") }
+
+                                    if (shortcutMatch != null) {
+                                        val chipColor =
+                                                if (shortcutMatch.color != null) {
+                                                    Color(shortcutMatch.color.toInt())
+                                                } else {
+                                                    MaterialTheme.colorScheme.primaryContainer
+                                                }
+                                        val onChipColor =
+                                                if (shortcutMatch.color != null) {
+                                                    Color.White
+                                                } else {
+                                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                                }
+
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Surface(
+                                                    color = chipColor,
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    modifier = Modifier.padding(end = 8.dp)
+                                            ) {
+                                                Text(
+                                                        text = shortcutMatch.trigger,
+                                                        modifier =
+                                                                Modifier.padding(
+                                                                        horizontal = 8.dp,
+                                                                        vertical = 2.dp
+                                                                ),
+                                                        style = MaterialTheme.typography.labelLarge,
+                                                        color = onChipColor
+                                                )
+                                            }
+                                            Text(
+                                                    text =
+                                                            query.substring(
+                                                                    shortcutMatch.trigger.length + 1
+                                                            ),
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                                text = query,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                style = MaterialTheme.typography.bodyLarge
+                                        )
+                                    }
                                 }
                             }
-                        }
 
-                        if (query.isNotEmpty()) {
-                            IconButton(
-                                    onClick = { onQueryChange("") },
-                                    modifier = Modifier.size(32.dp).padding(4.dp)
-                            ) {
-                                Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Clear",
-                                        modifier = Modifier.size(16.dp)
-                                )
+                            if (query.isNotEmpty()) {
+                                IconButton(
+                                        onClick = { onQueryChange("") },
+                                        modifier = Modifier.size(32.dp).padding(4.dp)
+                                ) {
+                                    Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Clear",
+                                            modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                         }
                     }
