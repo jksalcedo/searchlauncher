@@ -12,6 +12,7 @@ import androidx.appsearch.app.PutDocumentsRequest
 import androidx.appsearch.app.SearchSpec
 import androidx.appsearch.app.SetSchemaRequest
 import androidx.appsearch.localstorage.LocalStorage
+import com.searchlauncher.app.SearchLauncherApp
 import com.searchlauncher.app.util.FuzzyMatch
 import com.searchlauncher.app.util.StaticShortcutScanner
 import java.net.HttpURLConnection
@@ -646,6 +647,26 @@ class SearchRepository(private val context: Context) {
                                                         }
                                                 }
                                         }
+                                }
+                        }
+
+                        // Add QuickCopy items
+                        if (query.isNotEmpty()) {
+                                val app = context.applicationContext as? SearchLauncherApp
+                                app?.quickCopyRepository?.searchItems(query)?.forEach { item ->
+                                        val clipboardIcon = context.getDrawable(android.R.drawable.ic_menu_edit)
+                                        results.add(
+                                                SearchResult.QuickCopy(
+                                                        id = "quickcopy_${item.alias}",
+                                                        namespace = "quickcopy",
+                                                        title = item.alias,
+                                                        subtitle = item.content.take(50) + if (item.content.length > 50) "..." else "",
+                                                        icon = clipboardIcon,
+                                                        alias = item.alias,
+                                                        content = item.content,
+                                                        rankingScore = 95 // High priority but below exact app matches
+                                                )
+                                        )
                                 }
                         }
 

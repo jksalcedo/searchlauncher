@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import com.searchlauncher.app.data.QuickCopyRepository
 import com.searchlauncher.app.data.SearchRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,9 +16,13 @@ class SearchLauncherApp : Application() {
     lateinit var searchRepository: SearchRepository
         private set
 
+    lateinit var quickCopyRepository: QuickCopyRepository
+        private set
+
     override fun onCreate() {
         super.onCreate()
         searchRepository = SearchRepository(this)
+        quickCopyRepository = QuickCopyRepository(this)
         CoroutineScope(Dispatchers.IO).launch { searchRepository.initialize() }
         createNotificationChannel()
     }

@@ -64,4 +64,15 @@ sealed class SearchResult {
                 val contactId: Long,
                 val photoUri: String?
         ) : SearchResult()
+
+        data class QuickCopy(
+                override val id: String,
+                override val namespace: String = "quickcopy",
+                override val title: String,
+                override val subtitle: String?,
+                override val icon: Drawable?,
+                override val rankingScore: Int = 0,
+                val alias: String,
+                val content: String
+        ) : SearchResult()
 }

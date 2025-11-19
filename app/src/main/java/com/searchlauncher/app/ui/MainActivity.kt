@@ -14,7 +14,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -130,7 +133,7 @@ class MainActivity : ComponentActivity() {
                         SearchScreen(
                                 query = queryState,
                                 onQueryChange = { queryState = it },
-                                onDismiss = { /* No-op for home screen */},
+                                onDismiss = { queryState = "" },
                                 onOpenSettings = { currentScreenState = Screen.Settings },
                                 searchRepository = app.searchRepository,
                                 focusTrigger = focusTrigger,
@@ -304,6 +307,8 @@ fun HomeScreen(
                 }
             }
         }
+
+        QuickCopyCard()
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
@@ -489,4 +494,179 @@ fun hasUsageStatsPermission(context: Context): Boolean {
     } catch (e: Exception) {
         false
     }
+}
+
+@Composable
+private fun QuickCopyCard() {
+    val context = LocalContext.current
+    val app = context.applicationContext as SearchLauncherApp
+    val quickCopyItems = app.quickCopyRepository.items.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    var showDialog by remember { mutableStateOf(false) }
+    var editingItem by remember { mutableStateOf<com.searchlauncher.app.data.QuickCopyItem?>(null) }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = "QuickCopy", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                            text = "Quick access to frequently used text snippets",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Button(
+                        onClick = {
+                            editingItem = null
+                            showDialog = true
+                        }
+                ) {
+                    Text("Add")
+                }
+            }
+
+            // List existing items
+            if (quickCopyItems.value.isNotEmpty()) {
+                Text(
+                        text = "${quickCopyItems.value.size} item${if (quickCopyItems.value.size != 1) "s" else ""}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                quickCopyItems.value.forEach { item ->
+                    Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                    ) {
+                        Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                        text = item.alias,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                )
+                                Text(
+                                        text = item.content.take(50) + if (item.content.length > 50) "..." else "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Row {
+                                IconButton(
+                                        onClick = {
+                                            editingItem = item
+                                            showDialog = true
+                                        }
+                                ) {
+                                    Icon(
+                                            imageVector = androidx.compose.material.icons.Icons.Default.Edit,
+                                            contentDescription = "Edit"
+                                    )
+                                }
+                                IconButton(
+                                        onClick = {
+                                            scope.launch {
+                                                app.quickCopyRepository.removeItem(item.alias)
+                                            }
+                                        }
+                                ) {
+                                    Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Delete",
+                                            tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showDialog) {
+        QuickCopyDialog(
+                item = editingItem,
+                onDismiss = { showDialog = false },
+                onSave = { alias, content ->
+                    scope.launch {
+                        if (editingItem != null) {
+                            app.quickCopyRepository.updateItem(editingItem!!.alias, alias, content)
+                        } else {
+                            app.quickCopyRepository.addItem(alias, content)
+                        }
+                        showDialog = false
+                    }
+                }
+        )
+    }
+}
+
+@Composable
+private fun QuickCopyDialog(
+        item: com.searchlauncher.app.data.QuickCopyItem?,
+        onDismiss: () -> Unit,
+        onSave: (String, String) -> Unit
+) {
+    var alias by remember { mutableStateOf(item?.alias ?: "") }
+    var content by remember { mutableStateOf(item?.content ?: "") }
+
+    AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(if (item != null) "Edit QuickCopy" else "Add QuickCopy") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                            value = alias,
+                            onValueChange = { alias = it },
+                            label = { Text("Alias") },
+                            placeholder = { Text("e.g., 'bank', 'meet'") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                    )
+
+                    OutlinedTextField(
+                            value = content,
+                            onValueChange = { content = it },
+                            label = { Text("Content") },
+                            placeholder = { Text("The text to copy") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 3,
+                            maxLines = 6
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                        onClick = {
+                            if (alias.isNotBlank() && content.isNotBlank()) {
+                                onSave(alias.trim(), content.trim())
+                            }
+                        },
+                        enabled = alias.isNotBlank() && content.isNotBlank()
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            }
+    )
 }
