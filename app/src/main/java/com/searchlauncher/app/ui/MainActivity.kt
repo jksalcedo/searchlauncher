@@ -25,6 +25,10 @@ import com.searchlauncher.app.ui.theme.SearchLauncherTheme
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.core.content.ContextCompat
+
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 class MainActivity : ComponentActivity() {
@@ -221,6 +225,23 @@ fun HomeScreen(onStartService: () -> Unit, onStopService: () -> Unit, onOpenPrac
                         onGrant = {
                             val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
                             context.startActivity(intent)
+                        }
+                )
+
+                PermissionStatus(
+                        title = "Modify System Settings (Rotation)",
+                        granted =
+                                rememberPermissionState {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                        Settings.System.canWrite(context)
+                                    } else true
+                                }.value,
+                        onGrant = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
+                                intent.data = Uri.parse("package:${context.packageName}")
+                                context.startActivity(intent)
+                            }
                         }
                 )
             }

@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.core.content.ContextCompat
 import com.searchlauncher.app.R
 
 @Composable
@@ -59,7 +60,8 @@ fun OnboardingScreen(onComplete: () -> Unit) {
             1 -> OverlayPermissionStep()
             2 -> AccessibilityPermissionStep()
             3 -> UsageStatsPermissionStep()
-            4 -> CompleteStep()
+            4 -> AdvancedFeaturesStep()
+            5 -> CompleteStep()
         }
 
         Column(
@@ -71,7 +73,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(bottom = 24.dp)
             ) {
-                repeat(5) { index ->
+                repeat(6) { index ->
                     Box(
                         modifier = Modifier
                             .size(8.dp)
@@ -101,7 +103,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
 
             Button(
                 onClick = {
-                    if (currentStep < 4) {
+                    if (currentStep < 5) {
                         currentStep++
                     } else {
                         onComplete()
@@ -112,13 +114,13 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                 Text(
                     text = when (currentStep) {
                         0 -> "Get Started"
-                        4 -> "Finish"
+                        5 -> "Finish"
                         else -> "Continue"
                     }
                 )
             }
 
-            if (currentStep > 0 && currentStep < 4) {
+            if (currentStep > 0 && currentStep < 5) {
                 TextButton(
                     onClick = { currentStep++ },
                     modifier = Modifier.fillMaxWidth()
@@ -323,6 +325,97 @@ fun PermissionStep(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Grant Permission")
+            }
+        }
+    }
+}
+
+@Composable
+fun AdvancedFeaturesStep() {
+    val context = LocalContext.current
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.Settings,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+
+        Text(
+            text = "Advanced Features (Optional)",
+            style = MaterialTheme.typography.headlineMedium,
+            textAlign = TextAlign.Center
+        )
+
+        Text(
+            text = "Enable extra capabilities like Rotation Lock.",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Rotation
+        val writeSettingsGranted =
+            rememberPermissionState {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                        Settings.System.canWrite(context)
+                    else true
+                }
+                .value
+
+        PermissionStatusItem(
+            title = "Modify System Settings",
+            granted = writeSettingsGranted,
+            onGrant = {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
+                    intent.data = Uri.parse("package:${context.packageName}")
+                    context.startActivity(intent)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun PermissionStatusItem(title: String, granted: Boolean, onGrant: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = title, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = if (granted) "Granted" else "Not granted",
+                    style = MaterialTheme.typography.bodySmall,
+                    color =
+                        if (granted) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.error
+                )
+            }
+            if (!granted) {
+                TextButton(onClick = onGrant) { Text("Grant") }
+            } else {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }
