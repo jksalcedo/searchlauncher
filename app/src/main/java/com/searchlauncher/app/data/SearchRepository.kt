@@ -184,7 +184,10 @@ class SearchRepository(private val context: Context) {
                         }
                 }
 
-        suspend fun getRecentItems(limit: Int = 10, excludedIds: Set<String> = emptySet()): List<SearchResult> =
+        suspend fun getRecentItems(
+                limit: Int = 10,
+                excludedIds: Set<String> = emptySet()
+        ): List<SearchResult> =
                 withContext(Dispatchers.IO) {
                         val session = appSearchSession
                         if (session == null) return@withContext emptyList()
@@ -193,7 +196,8 @@ class SearchRepository(private val context: Context) {
                                 val searchSpec =
                                         SearchSpec.Builder()
                                                 .setRankingStrategy(
-                                                        SearchSpec.RANKING_STRATEGY_USAGE_LAST_USED_TIMESTAMP
+                                                        SearchSpec
+                                                                .RANKING_STRATEGY_USAGE_LAST_USED_TIMESTAMP
                                                 )
                                                 .setResultCountPerPage(100) // Get more to filter
                                                 .build()
@@ -226,11 +230,18 @@ class SearchRepository(private val context: Context) {
                 withContext(Dispatchers.IO) {
                         try {
                                 // Get all custom search shortcuts from cache
-                                val searchShortcuts = synchronized(documentCache) {
-                                    documentCache.filter { it.namespace == "custom_shortcuts" && !it.isAction }
-                                }
+                                val searchShortcuts =
+                                        synchronized(documentCache) {
+                                                documentCache.filter {
+                                                        it.namespace == "custom_shortcuts" &&
+                                                                !it.isAction
+                                                }
+                                        }
 
-                                android.util.Log.d("SearchRepository", "Found ${searchShortcuts.size} search shortcuts in cache")
+                                android.util.Log.d(
+                                        "SearchRepository",
+                                        "Found ${searchShortcuts.size} search shortcuts in cache"
+                                )
 
                                 // Try to get usage data from AppSearch to sort them
                                 val session = appSearchSession
@@ -239,31 +250,50 @@ class SearchRepository(private val context: Context) {
                                                 val searchSpec =
                                                         SearchSpec.Builder()
                                                                 .setRankingStrategy(
-                                                                        SearchSpec.RANKING_STRATEGY_USAGE_COUNT
+                                                                        SearchSpec
+                                                                                .RANKING_STRATEGY_USAGE_COUNT
                                                                 )
-                                                                .addFilterNamespaces("custom_shortcuts")
+                                                                .addFilterNamespaces(
+                                                                        "custom_shortcuts"
+                                                                )
                                                                 .setResultCountPerPage(50)
                                                                 .build()
 
-                                                // Try searching for common terms that would match shortcuts
-                                                val searchResults = session.search("search", searchSpec)
+                                                // Try searching for common terms that would match
+                                                // shortcuts
+                                                val searchResults =
+                                                        session.search("search", searchSpec)
                                                 val page = searchResults.nextPageAsync.get()
 
                                                 // Build a map of document ID to usage count
-                                                val usageMap = page.associate { result ->
-                                                        result.genericDocument.id to result.rankingSignal
-                                                }
+                                                val usageMap =
+                                                        page.associate { result ->
+                                                                result.genericDocument.id to
+                                                                        result.rankingSignal
+                                                        }
 
-                                                android.util.Log.d("SearchRepository", "Got usage data for ${usageMap.size} shortcuts")
+                                                android.util.Log.d(
+                                                        "SearchRepository",
+                                                        "Got usage data for ${usageMap.size} shortcuts"
+                                                )
 
                                                 // Sort by usage, with unused items at the end
                                                 return@withContext searchShortcuts
-                                                        .sortedByDescending { doc -> usageMap[doc.id] ?: 0.0 }
+                                                        .sortedByDescending { doc ->
+                                                                usageMap[doc.id] ?: 0.0
+                                                        }
                                                         .take(limit)
-                                                        .map { doc -> convertDocumentToResult(doc, 100) }
-                                                        .filterIsInstance<SearchResult.SearchIntent>()
+                                                        .map { doc ->
+                                                                convertDocumentToResult(doc, 100)
+                                                        }
+                                                        .filterIsInstance<
+                                                                SearchResult.SearchIntent>()
                                         } catch (e: Exception) {
-                                                android.util.Log.e("SearchRepository", "Error querying usage", e)
+                                                android.util.Log.e(
+                                                        "SearchRepository",
+                                                        "Error querying usage",
+                                                        e
+                                                )
                                         }
                                 }
 
@@ -287,9 +317,10 @@ class SearchRepository(private val context: Context) {
                 withContext(Dispatchers.IO) {
                         try {
                                 synchronized(documentCache) {
-                                        documentCache
-                                                .filter { favoriteIds.contains(it.id) }
-                                                .map { doc -> convertDocumentToResult(doc, 100) }
+                                        documentCache.filter { favoriteIds.contains(it.id) }.map {
+                                                doc ->
+                                                convertDocumentToResult(doc, 100)
+                                        }
                                 }
                         } catch (e: Exception) {
                                 e.printStackTrace()
@@ -668,18 +699,26 @@ class SearchRepository(private val context: Context) {
                         if (query.isNotEmpty()) {
                                 val app = context.applicationContext as? SearchLauncherApp
                                 app?.quickCopyRepository?.searchItems(query)?.forEach { item ->
-                                        val clipboardIcon = context.getDrawable(android.R.drawable.ic_menu_edit)
+                                        val clipboardIcon =
+                                                context.getDrawable(android.R.drawable.ic_menu_edit)
                                         results.add(
                                                 SearchResult.QuickCopy(
                                                         id = "quickcopy_${item.alias}",
                                                         namespace = "quickcopy",
                                                         title = item.alias,
-                                                        subtitle = item.content.take(50) + if (item.content.length > 50) "..." else "",
+                                                        subtitle =
+                                                                item.content.take(50) +
+                                                                        if (item.content.length > 50
+                                                                        )
+                                                                                "..."
+                                                                        else "",
                                                         icon = clipboardIcon,
                                                         alias = item.alias,
                                                         content = item.content,
-                                                        rankingScore = 95 // High priority but below exact app matches
-                                                )
+                                                        rankingScore =
+                                                                95 // High priority but below exact
+                                                        // app matches
+                                                        )
                                         )
                                 }
                         }
@@ -708,7 +747,14 @@ class SearchRepository(private val context: Context) {
                                                                 AppSearchDocument::class.java
                                                         )
                                                 val baseScore = result.rankingSignal.toInt()
-                                                val boost = if (doc.namespace == "apps") 5 else 0
+                                                val isSettings =
+                                                        doc.id == "com.android.settings" ||
+                                                                doc.intentUri?.contains(
+                                                                        "android.settings.SETTINGS"
+                                                                ) == true
+                                                val boost =
+                                                        if (isSettings) 15
+                                                        else if (doc.namespace == "apps") 5 else 0
                                                 appSearchResults.add(
                                                         convertDocumentToResult(
                                                                 doc,
@@ -898,12 +944,28 @@ class SearchRepository(private val context: Context) {
                         }
                         "custom_shortcuts" -> {
                                 if (doc.isAction) {
+                                        val icon =
+                                                if (doc.intentUri?.contains("android.settings") ==
+                                                                true
+                                                ) {
+                                                        try {
+                                                                context.packageManager
+                                                                        .getApplicationIcon(
+                                                                                "com.android.settings"
+                                                                        )
+                                                        } catch (e: Exception) {
+                                                                null
+                                                        }
+                                                } else {
+                                                        null
+                                                }
+
                                         SearchResult.Content(
                                                 id = doc.id,
                                                 namespace = "custom_shortcuts",
                                                 title = doc.name,
                                                 subtitle = "Action",
-                                                icon = null,
+                                                icon = icon,
                                                 packageName = "android",
                                                 deepLink = doc.intentUri,
                                                 rankingScore = rankingScore

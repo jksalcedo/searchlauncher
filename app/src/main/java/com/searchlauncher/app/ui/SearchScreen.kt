@@ -22,8 +22,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -72,7 +74,11 @@ fun SearchScreen(
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     val favoriteIds by app.favoritesRepository.favoriteIds.collectAsState()
+
     var favorites by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
+    var showQuickCopyDialog by remember { mutableStateOf(false) }
+    var quickCopyEditMode by remember { mutableStateOf(false) }
+    var quickCopyItemToEdit by remember { mutableStateOf<SearchResult.QuickCopy?>(null) }
 
     LaunchedEffect(focusTrigger) { focusRequester.requestFocus() }
 
@@ -160,6 +166,18 @@ fun SearchScreen(
                                                             )
                                                         }
                                                     } else null,
+                                            onEditQuickCopy =
+                                                    if (result is SearchResult.QuickCopy) {
+                                                        {
+                                                            quickCopyItemToEdit = result
+                                                            quickCopyEditMode = true
+                                                            showQuickCopyDialog = true
+                                                        }
+                                                    } else null,
+                                            onCreateQuickCopy = {
+                                                quickCopyEditMode = false
+                                                showQuickCopyDialog = true
+                                            },
                                             onClick = {
                                                 if (result is SearchResult.SearchIntent) {
                                                     if (isFallbackMode && query.isNotEmpty()) {
@@ -215,13 +233,21 @@ fun SearchScreen(
                                                         onQueryChange(result.trigger + " ")
                                                     }
                                                 } else {
-                                                    launchResult(
-                                                            context,
-                                                            result,
-                                                            searchRepository,
-                                                            scope
-                                                    )
-                                                    onDismiss()
+                                                    if (result is SearchResult.Content &&
+                                                                    result.deepLink ==
+                                                                            "intent:#Intent;action=com.searchlauncher.action.CREATE_QUICK_COPY;end"
+                                                    ) {
+                                                        quickCopyEditMode = false
+                                                        showQuickCopyDialog = true
+                                                    } else {
+                                                        launchResult(
+                                                                context,
+                                                                result,
+                                                                searchRepository,
+                                                                scope
+                                                        )
+                                                        onDismiss()
+                                                    }
                                                 }
                                             }
                                     )
@@ -230,7 +256,7 @@ fun SearchScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 if (query.isEmpty() && favorites.isNotEmpty()) {
@@ -387,7 +413,6 @@ fun SearchScreen(
                                 Icon(
                                         imageVector = Icons.Default.Settings,
                                         contentDescription = "Settings",
-                                        modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
@@ -395,6 +420,35 @@ fun SearchScreen(
                 }
             }
         }
+    }
+
+    if (showQuickCopyDialog) {
+        QuickCopyDialog(
+                initialAlias =
+                        if (quickCopyEditMode && quickCopyItemToEdit != null)
+                                quickCopyItemToEdit!!.alias
+                        else "",
+                initialContent =
+                        if (quickCopyEditMode && quickCopyItemToEdit != null)
+                                quickCopyItemToEdit!!.content
+                        else "",
+                isEditMode = quickCopyEditMode,
+                onDismiss = { showQuickCopyDialog = false },
+                onConfirm = { alias, content ->
+                    scope.launch(Dispatchers.IO) {
+                        if (quickCopyEditMode && quickCopyItemToEdit != null) {
+                            app.quickCopyRepository.updateItem(
+                                    quickCopyItemToEdit!!.alias,
+                                    alias,
+                                    content
+                            )
+                        } else {
+                            app.quickCopyRepository.addItem(alias, content)
+                        }
+                    }
+                    showQuickCopyDialog = false
+                }
+        )
     }
 }
 
@@ -404,6 +458,8 @@ private fun SearchResultItem(
         result: SearchResult,
         isFavorite: Boolean = false,
         onToggleFavorite: (() -> Unit)? = null,
+        onEditQuickCopy: (() -> Unit)? = null,
+        onCreateQuickCopy: (() -> Unit)? = null,
         onClick: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -414,6 +470,11 @@ private fun SearchResultItem(
                         Modifier.fillMaxWidth()
                                 .then(
                                         if (onToggleFavorite != null) {
+                                            Modifier.combinedClickable(
+                                                    onClick = onClick,
+                                                    onLongClick = { showMenu = true }
+                                            )
+                                        } else if (result is SearchResult.QuickCopy) {
                                             Modifier.combinedClickable(
                                                     onClick = onClick,
                                                     onLongClick = { showMenu = true }
@@ -466,34 +527,73 @@ private fun SearchResultItem(
             }
         }
 
-        if (showMenu && onToggleFavorite != null) {
+        if (showMenu) {
             val context = LocalContext.current
             DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
                     properties = PopupProperties(focusable = false)
             ) {
-                DropdownMenuItem(
-                        text = {
-                            Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites")
-                        },
-                        onClick = {
-                            onToggleFavorite()
-                            showMenu = false
-                        },
-                        leadingIcon = {
-                            Icon(
-                                    imageVector =
-                                            if (isFavorite) {
-                                                androidx.compose.material.icons.Icons.Default.Star
-                                            } else {
-                                                androidx.compose.material.icons.Icons.Default
-                                                        .StarBorder
-                                            },
-                                    contentDescription = null
-                            )
-                        }
-                )
+                if (result is SearchResult.QuickCopy) {
+                    DropdownMenuItem(
+                            text = { Text("Edit") },
+                            onClick = {
+                                onEditQuickCopy?.invoke()
+                                showMenu = false
+                            },
+                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                    )
+                    DropdownMenuItem(
+                            text = { Text("Delete") },
+                            onClick = {
+                                val app =
+                                        context.applicationContext as
+                                                com.searchlauncher.app.SearchLauncherApp
+                                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                                    app.quickCopyRepository.removeItem(result.alias)
+                                }
+                                showMenu = false
+                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) }
+                    )
+                    DropdownMenuItem(
+                            text = { Text("Create New") },
+                            onClick = {
+                                onCreateQuickCopy?.invoke()
+                                showMenu = false
+                            },
+                            leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) }
+                    )
+                }
+
+                if (onToggleFavorite != null) {
+                    DropdownMenuItem(
+                            text = {
+                                Text(
+                                        if (isFavorite) "Remove from Favorites"
+                                        else "Add to Favorites"
+                                )
+                            },
+                            onClick = {
+                                onToggleFavorite()
+                                showMenu = false
+                            },
+                            leadingIcon = {
+                                Icon(
+                                        imageVector =
+                                                if (isFavorite) {
+                                                    androidx.compose.material.icons.Icons.Default
+                                                            .Star
+                                                } else {
+                                                    androidx.compose.material.icons.Icons.Default
+                                                            .StarBorder
+                                                },
+                                        contentDescription = null
+                                )
+                            }
+                    )
+                }
 
                 if (result is SearchResult.App) {
                     DropdownMenuItem(
@@ -724,6 +824,7 @@ private fun FavoritesRow(
                 DropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
+                        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant),
                         properties = PopupProperties(focusable = false)
                 ) {
                     DropdownMenuItem(
@@ -792,4 +893,65 @@ private fun FavoritesRow(
             }
         }
     }
+}
+
+@Composable
+fun QuickCopyDialog(
+        initialAlias: String,
+        initialContent: String,
+        isEditMode: Boolean,
+        onDismiss: () -> Unit,
+        onConfirm: (String, String) -> Unit
+) {
+    var alias by remember { mutableStateOf(initialAlias) }
+    var content by remember { mutableStateOf(initialContent) }
+    var aliasError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(if (isEditMode) "Edit Quick Copy" else "New Quick Copy") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                            value = alias,
+                            onValueChange = {
+                                alias = it
+                                aliasError = false
+                            },
+                            label = { Text("Alias") },
+                            isError = aliasError,
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                    )
+                    if (aliasError) {
+                        Text(
+                                text = "Alias cannot be empty",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(start = 16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                            value = content,
+                            onValueChange = { content = it },
+                            label = { Text("Content") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 3
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                        onClick = {
+                            if (alias.isBlank()) {
+                                aliasError = true
+                            } else {
+                                onConfirm(alias, content)
+                            }
+                        }
+                ) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }

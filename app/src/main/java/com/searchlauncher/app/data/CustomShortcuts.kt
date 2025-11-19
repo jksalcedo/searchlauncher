@@ -69,7 +69,6 @@ object CustomShortcuts {
                         "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
                         "android.settings.REQUEST_SET_AUTOFILL_SERVICE",
                         "android.settings.SECURITY_SETTINGS",
-                        "android.settings.SETTINGS",
                         "android.settings.SHOW_REGULATORY_INFO",
                         "android.settings.SOUND_SETTINGS",
                         "android.settings.STORAGE_VOLUME_ACCESS_SETTINGS",
@@ -247,6 +246,16 @@ object CustomShortcuts {
                                 intentUri =
                                         "intent:#Intent;action=android.settings.HOME_SETTINGS;end",
                                 description = "Set as Launcher"
+                        ),
+                        CustomShortcut.Action(
+                                intentUri =
+                                        "intent:#Intent;action=com.searchlauncher.action.CREATE_QUICK_COPY;end",
+                                description = "Create Quick Copy"
+                        ),
+                        CustomShortcut.Action(
+                                intentUri = "intent:#Intent;action=android.settings.SETTINGS;end",
+                                description = "Settings",
+                                packageName = "com.android.settings"
                         )
                 ) + generateSettingsShortcuts()
 }
