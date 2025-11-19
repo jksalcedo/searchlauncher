@@ -299,6 +299,24 @@ fun HomeScreen(
                 )
 
                 PermissionStatus(
+                        title = "Contacts (Optional)",
+                        granted =
+                                rememberPermissionState {
+                                            context.checkSelfPermission(
+                                                    android.Manifest.permission.READ_CONTACTS
+                                            ) ==
+                                                    android.content.pm.PackageManager
+                                                            .PERMISSION_GRANTED
+                                        }
+                                        .value,
+                        onGrant = {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            intent.data = Uri.fromParts("package", context.packageName, null)
+                            context.startActivity(intent)
+                        }
+                )
+
+                PermissionStatus(
                         title = "Modify System Settings (Rotation)",
                         granted =
                                 rememberPermissionState {

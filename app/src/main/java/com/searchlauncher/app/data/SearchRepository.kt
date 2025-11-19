@@ -49,6 +49,7 @@ class SearchRepository(private val context: Context) {
                                 indexApps()
                                 indexCustomShortcuts()
                                 indexStaticShortcuts()
+                                indexContacts()
                         } catch (e: Exception) {
                                 e.printStackTrace()
                         }
@@ -176,6 +177,7 @@ class SearchRepository(private val context: Context) {
                                 indexApps()
                                 indexCustomShortcuts()
                                 indexStaticShortcuts()
+                                indexContacts()
                         } catch (e: Exception) {
                                 e.printStackTrace()
                         }
@@ -371,6 +373,90 @@ class SearchRepository(private val context: Context) {
                                 }
                         } catch (e: Exception) {
                                 e.printStackTrace()
+                        }
+                }
+
+        suspend fun indexContacts() =
+                withContext(Dispatchers.IO) {
+                        val session = appSearchSession ?: return@withContext
+                        if (context.checkSelfPermission(
+                                        android.Manifest.permission.READ_CONTACTS
+                                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) {
+                                return@withContext
+                        }
+
+                        val contacts = mutableListOf<AppSearchDocument>()
+                        val cursor =
+                                context.contentResolver.query(
+                                        android.provider.ContactsContract.Contacts.CONTENT_URI,
+                                        arrayOf(
+                                                android.provider.ContactsContract.Contacts._ID,
+                                                android.provider.ContactsContract.Contacts
+                                                        .DISPLAY_NAME_PRIMARY,
+                                                android.provider.ContactsContract.Contacts
+                                                        .LOOKUP_KEY,
+                                                android.provider.ContactsContract.Contacts
+                                                        .PHOTO_THUMBNAIL_URI
+                                        ),
+                                        null,
+                                        null,
+                                        null
+                                )
+
+                        cursor?.use {
+                                val idIndex =
+                                        it.getColumnIndex(
+                                                android.provider.ContactsContract.Contacts._ID
+                                        )
+                                val nameIndex =
+                                        it.getColumnIndex(
+                                                android.provider.ContactsContract.Contacts
+                                                        .DISPLAY_NAME_PRIMARY
+                                        )
+                                val lookupIndex =
+                                        it.getColumnIndex(
+                                                android.provider.ContactsContract.Contacts
+                                                        .LOOKUP_KEY
+                                        )
+                                val photoIndex =
+                                        it.getColumnIndex(
+                                                android.provider.ContactsContract.Contacts
+                                                        .PHOTO_THUMBNAIL_URI
+                                        )
+
+                                while (it.moveToNext()) {
+                                        val id = it.getLong(idIndex)
+                                        val name = it.getString(nameIndex)
+                                        val lookupKey = it.getString(lookupIndex)
+                                        val photoUri = it.getString(photoIndex)
+
+                                        if (name != null) {
+                                                contacts.add(
+                                                        AppSearchDocument(
+                                                                namespace = "contacts",
+                                                                id = "$lookupKey/$id",
+                                                                name = name,
+                                                                description =
+                                                                        photoUri, // Storing photo
+                                                                // URI in
+                                                                // description for
+                                                                // simplicity
+                                                                score = 4, // Higher priority than
+                                                                // apps
+                                                                intentUri =
+                                                                        "content://com.android.contacts/contacts/lookup/$lookupKey/$id"
+                                                        )
+                                                )
+                                        }
+                                }
+                        }
+
+                        if (contacts.isNotEmpty()) {
+                                val putRequest =
+                                        PutDocumentsRequest.Builder().addDocuments(contacts).build()
+                                session.putAsync(putRequest).get()
+                                documentCache.addAll(contacts)
                         }
                 }
 
@@ -751,6 +837,49 @@ class SearchRepository(private val context: Context) {
                                         intentUri = doc.intentUri ?: "",
                                         appIcon = appIcon,
                                         rankingScore = rankingScore
+                                )
+                        }
+                        "contacts" -> {
+                                val lookupKey = doc.id.substringBefore("/")
+                                val contactId = doc.id.substringAfter("/").toLongOrNull() ?: 0L
+                                val photoUri = doc.description // We stored photo URI in description
+
+                                var icon: Drawable? = null
+                                if (photoUri != null) {
+                                        try {
+                                                val uri = android.net.Uri.parse(photoUri)
+                                                val stream =
+                                                        context.contentResolver.openInputStream(uri)
+                                                icon =
+                                                        Drawable.createFromStream(
+                                                                stream,
+                                                                uri.toString()
+                                                        )
+                                                stream?.close()
+                                        } catch (e: Exception) {
+                                                // Ignore
+                                        }
+                                }
+
+                                if (icon == null) {
+                                        // Default contact icon
+                                        icon =
+                                                context.getDrawable(
+                                                        android.R.drawable.sym_contact_card
+                                                )
+                                        icon?.setTint(Color.GRAY)
+                                }
+
+                                SearchResult.Contact(
+                                        id = doc.id,
+                                        namespace = "contacts",
+                                        title = doc.name,
+                                        subtitle = "Contact",
+                                        icon = icon,
+                                        rankingScore = rankingScore,
+                                        lookupKey = lookupKey,
+                                        contactId = contactId,
+                                        photoUri = photoUri
                                 )
                         }
                         else -> { // apps

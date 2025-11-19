@@ -52,4 +52,16 @@ sealed class SearchResult {
                 override val rankingScore: Int = 0,
                 val trigger: String
         ) : SearchResult()
+
+        data class Contact(
+                override val id: String,
+                override val namespace: String = "contacts",
+                override val title: String,
+                override val subtitle: String?,
+                override val icon: Drawable?,
+                override val rankingScore: Int = 0,
+                val lookupKey: String,
+                val contactId: Long,
+                val photoUri: String?
+        ) : SearchResult()
 }

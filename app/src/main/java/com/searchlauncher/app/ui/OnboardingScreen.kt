@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -53,9 +54,10 @@ fun OnboardingScreen(onComplete: () -> Unit) {
             0 -> WelcomeStep()
             1 -> OverlayPermissionStep()
             2 -> AccessibilityPermissionStep()
-            3 -> UsageStatsPermissionStep()
-            4 -> AdvancedFeaturesStep()
-            5 -> CompleteStep()
+            3 -> ContactPermissionStep()
+            4 -> UsageStatsPermissionStep()
+            5 -> AdvancedFeaturesStep()
+            6 -> CompleteStep()
         }
 
         Column(
@@ -67,7 +69,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(bottom = 24.dp)
             ) {
-                repeat(6) { index ->
+                repeat(7) { index ->
                     Box(
                             modifier =
                                     Modifier.size(8.dp)
@@ -92,7 +94,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
 
             Button(
                     onClick = {
-                        if (currentStep < 5) {
+                        if (currentStep < 6) {
                             currentStep++
                         } else {
                             onComplete()
@@ -104,13 +106,13 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                         text =
                                 when (currentStep) {
                                     0 -> "Get Started"
-                                    5 -> "Finish"
+                                    6 -> "Finish"
                                     else -> "Continue"
                                 }
                 )
             }
 
-            if (currentStep > 0 && currentStep < 5) {
+            if (currentStep > 0 && currentStep < 6) {
                 TextButton(onClick = { currentStep++ }, modifier = Modifier.fillMaxWidth()) {
                     Text("Skip")
                 }
@@ -208,6 +210,27 @@ fun UsageStatsPermissionStep() {
             isOptional = true,
             onGrantClick = {
                 val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                context.startActivity(intent)
+            }
+    )
+}
+
+@Composable
+fun ContactPermissionStep() {
+    val context = LocalContext.current
+    val isGranted = rememberPermissionState {
+        context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    PermissionStep(
+            icon = androidx.compose.material.icons.Icons.Default.Person,
+            title = "Contacts Permission",
+            description = "Allow SearchLauncher to search your contacts.",
+            isGranted = isGranted.value,
+            onGrantClick = {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                intent.data = Uri.fromParts("package", context.packageName, null)
                 context.startActivity(intent)
             }
     )

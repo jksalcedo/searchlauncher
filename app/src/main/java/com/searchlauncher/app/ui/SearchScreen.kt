@@ -459,6 +459,22 @@ private fun launchResult(
         is SearchResult.SearchIntent -> {
             // Handled in UI
         }
+        is SearchResult.Contact -> {
+            try {
+                val intent = Intent(Intent.ACTION_VIEW)
+                val uri =
+                        Uri.withAppendedPath(
+                                android.provider.ContactsContract.Contacts.CONTENT_LOOKUP_URI,
+                                result.lookupKey
+                        )
+                intent.data = uri
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "Error opening contact", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     // Usage reporting
