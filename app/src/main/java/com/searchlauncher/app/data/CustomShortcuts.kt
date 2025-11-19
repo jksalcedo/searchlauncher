@@ -9,7 +9,8 @@ sealed class CustomShortcut {
                 val urlTemplate: String,
                 override val description: String,
                 override val packageName: String? = null,
-                val suggestionUrl: String? = null
+                val suggestionUrl: String? = null,
+                val color: Long? = null
         ) : CustomShortcut()
 
         data class Action(
@@ -111,71 +112,84 @@ object CustomShortcuts {
                                 urlTemplate = "https://www.google.com/search?q=%s",
                                 description = "Google Search",
                                 suggestionUrl =
-                                        "http://suggestqueries.google.com/complete/search?client=firefox&q=%s"
+                                        "http://suggestqueries.google.com/complete/search?client=firefox&q=%s",
+                                color = 0xFF4285F4
                         ),
                         CustomShortcut.Search(
                                 trigger = "call",
                                 urlTemplate = "tel:%s",
-                                description = "Call"
+                                description = "Call",
+                                color = 0xFF4CAF50
                         ),
                         CustomShortcut.Search(
                                 trigger = "sms",
                                 urlTemplate = "sms:%s",
-                                description = "Send SMS"
+                                description = "Send SMS",
+                                color = 0xFF2196F3
                         ),
                         CustomShortcut.Search(
                                 trigger = "mailto",
                                 urlTemplate = "mailto:%s",
-                                description = "Send Email to"
+                                description = "Send Email to",
+                                color = 0xFFF44336
                         ),
                         CustomShortcut.Search(
                                 trigger = "gmail",
                                 urlTemplate = "gmail://search/%s",
-                                description = "Gmail Search"
+                                description = "Gmail Search",
+                                color = 0xFFDB4437
                         ),
                         CustomShortcut.Search(
                                 trigger = "cal",
                                 urlTemplate =
                                         "intent:#Intent;action=android.intent.action.INSERT;type=vnd.android.cursor.item/event;S.title=%s;end",
-                                description = "Add Calendar Item"
+                                description = "Add Calendar Item",
+                                color = 0xFF3F51B5
                         ),
                         CustomShortcut.Search(
                                 trigger = "ff",
                                 urlTemplate = "https://www.google.com/search?q=%s",
                                 description = "Firefox Search",
-                                packageName = "org.mozilla.firefox"
+                                packageName = "org.mozilla.firefox",
+                                color = 0xFFFF9800
                         ),
                         CustomShortcut.Search(
                                 trigger = "yt",
                                 urlTemplate = "https://www.youtube.com/results?search_query=%s",
                                 description = "YouTube Search",
                                 suggestionUrl =
-                                        "http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=%s"
+                                        "http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=%s",
+                                color = 0xFFFF0000
                         ),
                         CustomShortcut.Search(
                                 trigger = "nav",
                                 urlTemplate = "geo:0,0?q=%s",
-                                description = "Navigate to"
+                                description = "Navigate to",
+                                color = 0xFF009688
                         ),
                         CustomShortcut.Search(
                                 trigger = "maps",
                                 urlTemplate = "https://www.google.com/maps/search/%s",
-                                description = "Google Maps Search"
+                                description = "Google Maps Search",
+                                color = 0xFF34A853
                         ),
                         CustomShortcut.Search(
                                 trigger = "r",
                                 urlTemplate = "https://www.reddit.com/search/?q=%s",
-                                description = "Reddit Search"
+                                description = "Reddit Search",
+                                color = 0xFFFF4500
                         ),
                         CustomShortcut.Search(
                                 trigger = "w",
                                 urlTemplate = "https://en.wikipedia.org/w/index.php?search=%s",
-                                description = "Wikipedia Search"
+                                description = "Wikipedia Search",
+                                color = 0xFF808080
                         ),
                         CustomShortcut.Search(
                                 trigger = "gpt",
                                 urlTemplate = "https://chatgpt.com/?q=%s",
-                                description = "ChatGPT"
+                                description = "ChatGPT",
+                                color = 0xFF10A37F
                         ),
                         CustomShortcut.Action(
                                 intentUri =
@@ -187,7 +201,8 @@ object CustomShortcuts {
                                 trigger = "s",
                                 urlTemplate = "spotify:search:%s",
                                 description = "Spotify Search",
-                                packageName = "com.spotify.music"
+                                packageName = "com.spotify.music",
+                                color = 0xFF1DB954
                         ),
                         CustomShortcut.Action(
                                 intentUri =

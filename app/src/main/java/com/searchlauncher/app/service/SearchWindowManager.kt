@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.searchlauncher.app.data.CustomShortcut
+import com.searchlauncher.app.data.CustomShortcuts
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import kotlinx.coroutines.CoroutineScope
@@ -403,11 +405,58 @@ class SearchWindowManager(private val context: Context, private val windowManage
                                         style = MaterialTheme.typography.bodyLarge
                                 )
                             } else {
-                                Text(
-                                        text = query,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        style = MaterialTheme.typography.bodyLarge
-                                )
+                                val shortcutMatch =
+                                        CustomShortcuts.shortcuts.filterIsInstance<
+                                                        CustomShortcut.Search>()
+                                                .find { query.startsWith("${it.trigger} ") }
+
+                                if (shortcutMatch != null) {
+                                    val chipColor =
+                                            if (shortcutMatch.color != null) {
+                                                Color(shortcutMatch.color.toInt())
+                                            } else {
+                                                MaterialTheme.colorScheme.primaryContainer
+                                            }
+                                    val onChipColor =
+                                            if (shortcutMatch.color != null) {
+                                                Color.White
+                                            } else {
+                                                MaterialTheme.colorScheme.onPrimaryContainer
+                                            }
+
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(
+                                                color = chipColor,
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.padding(end = 8.dp)
+                                        ) {
+                                            Text(
+                                                    text = shortcutMatch.trigger,
+                                                    modifier =
+                                                            Modifier.padding(
+                                                                    horizontal = 8.dp,
+                                                                    vertical = 2.dp
+                                                            ),
+                                                    style = MaterialTheme.typography.labelLarge,
+                                                    color = onChipColor
+                                            )
+                                        }
+                                        Text(
+                                                text =
+                                                        query.substring(
+                                                                shortcutMatch.trigger.length + 1
+                                                        ),
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                            text = query,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            style = MaterialTheme.typography.bodyLarge
+                                    )
+                                }
                             }
                         }
 
