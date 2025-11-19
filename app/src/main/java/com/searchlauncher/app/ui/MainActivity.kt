@@ -437,6 +437,8 @@ fun HomeScreen(
 
         QuickCopyCard()
 
+        BackupRestoreCard()
+
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                     modifier = Modifier.padding(16.dp),
@@ -772,4 +774,146 @@ private fun QuickCopyDialog(
                 }
             }
     )
+}
+
+@Composable
+private fun BackupRestoreCard() {
+    val context = LocalContext.current
+    val app = context.applicationContext as SearchLauncherApp
+    val scope = rememberCoroutineScope()
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(text = "Backup & Restore", style = MaterialTheme.typography.titleMedium)
+            Text(
+                    text = "Export your QuickCopy items to share or backup to cloud storage",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                        onClick = {
+                            scope.launch {
+                                exportQuickCopyData(context, app.quickCopyRepository)
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                ) {
+                    Text("Export")
+                }
+
+                OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                importQuickCopyData(context, app.quickCopyRepository)
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                ) {
+                    Text("Import")
+                }
+            }
+        }
+    }
+}
+
+private suspend fun exportQuickCopyData(
+        context: Context,
+        repository: com.searchlauncher.app.data.QuickCopyRepository
+) {
+    withContext(Dispatchers.IO) {
+        try {
+            val items = repository.items.value
+            val jsonArray = org.json.JSONArray()
+            items.forEach { item ->
+                val obj = org.json.JSONObject()
+                obj.put("alias", item.alias)
+                obj.put("content", item.content)
+                jsonArray.put(obj)
+            }
+
+            val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
+                    .format(java.util.Date())
+            val fileName = "searchlauncher_quickcopy_$timestamp.json"
+
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/json"
+                putExtra(Intent.EXTRA_TITLE, fileName)
+            }
+
+            // Save to clipboard as fallback
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("QuickCopy Backup", jsonArray.toString())
+            clipboard.setPrimaryClip(clip)
+
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(
+                        context,
+                        "Backup copied to clipboard (${items.size} items)",
+                        android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(
+                        context,
+                        "Export failed: ${e.message}",
+                        android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+}
+
+private suspend fun importQuickCopyData(
+        context: Context,
+        repository: com.searchlauncher.app.data.QuickCopyRepository
+) {
+    withContext(Dispatchers.Main) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clipData = clipboard.primaryClip
+
+        if (clipData != null && clipData.itemCount > 0) {
+            val text = clipData.getItemAt(0).text.toString()
+
+            try {
+                val jsonArray = org.json.JSONArray(text)
+                var importedCount = 0
+
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val alias = obj.getString("alias")
+                    val content = obj.getString("content")
+                    repository.addItem(alias, content)
+                    importedCount++
+                }
+
+                android.widget.Toast.makeText(
+                        context,
+                        "Imported $importedCount QuickCopy items",
+                        android.widget.Toast.LENGTH_SHORT
+                ).show()
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(
+                        context,
+                        "Import failed: Invalid format. Copy backup data to clipboard first.",
+                        android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+        } else {
+            android.widget.Toast.makeText(
+                    context,
+                    "No data in clipboard. Copy your backup data first.",
+                    android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
 }
