@@ -5,12 +5,12 @@ Swipe from the side and back to open the search bar.
 
 ## Features
 
-- **Search everything on your phone** - Apps, contacts, and app content
+- **Search everything on your phone** - Apps, settings
+- **Search everything on the web** - Youtube and google (with autocomplete), maps, spotify, more!
 - **Quick app launcher** - Fast access to all your installed apps
 - **Gesture activation** - Swipe from the edge and back to open search from any screen
 - **Modern architecture** - Built with Jetpack Compose, Material 3, and AppSearch API
 - **Smart sorting** - Apps sorted by recent usage (with optional usage stats permission)
-- **Beautiful UI** - Material You design with dynamic colors on Android 12+
 - **Guided onboarding** - Step-by-step permission setup
 
 ## Architecture
@@ -117,11 +117,7 @@ app/src/main/java/com/searchlauncher/app/
 
 ## Future Enhancements
 
-- Web search integration
 - Contact search
-- Settings search
-- Custom gesture configuration
-- Search filters and categories
 - Search history
 - Favorites/pinned apps
 
