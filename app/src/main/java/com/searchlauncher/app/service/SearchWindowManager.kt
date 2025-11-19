@@ -64,7 +64,10 @@ class SearchWindowManager(private val context: Context, private val windowManage
         if (searchView != null) return
 
         // Refresh shortcuts when showing
-        scope.launch { searchRepository.indexShortcuts() }
+        scope.launch {
+            searchRepository.indexShortcuts()
+            searchRepository.indexCustomShortcuts()
+        }
 
         lifecycleOwner = MyLifecycleOwner()
         lifecycleOwner?.onCreate()
@@ -299,6 +302,7 @@ class SearchWindowManager(private val context: Context, private val windowManage
                     Row(
                             modifier =
                                     Modifier.fillMaxWidth()
+                                            .heightIn(min = 48.dp) // Ensure constant height
                                             .padding(horizontal = 16.dp, vertical = 8.dp)
                                             .clickable {
                                                 onFocusRequest()
@@ -431,12 +435,14 @@ class SearchWindowManager(private val context: Context, private val windowManage
             is SearchResult.Content -> {
                 // Launch deep link if available
                 result.deepLink?.let { deepLink ->
-                    val intent =
-                            Intent(Intent.ACTION_VIEW).apply {
-                                data = android.net.Uri.parse(deepLink)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
                     try {
+                        val intent =
+                                if (deepLink.startsWith("intent:")) {
+                                    Intent.parseUri(deepLink, Intent.URI_INTENT_SCHEME)
+                                } else {
+                                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(deepLink))
+                                }
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         context.startActivity(intent)
                     } catch (e: Exception) {
                         e.printStackTrace()

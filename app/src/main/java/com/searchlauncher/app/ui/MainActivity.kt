@@ -22,7 +22,6 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
 import com.searchlauncher.app.service.OverlayService
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -36,11 +35,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             SearchLauncherTheme {
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    MainScreen()
-                }
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                ) { MainScreen() }
             }
         }
     }
@@ -51,30 +48,41 @@ class MainActivity : ComponentActivity() {
         val scope = rememberCoroutineScope()
         var showPractice by remember { mutableStateOf(false) }
 
-        val onboardingComplete by context.dataStore.data
-            .map { preferences ->
-                preferences[PreferencesKeys.ONBOARDING_COMPLETE] ?: false
-            }
-            .collectAsState(initial = false)
+        val onboardingComplete by
+                context.dataStore
+                        .data
+                        .map { preferences ->
+                            preferences[PreferencesKeys.ONBOARDING_COMPLETE] ?: false
+                        }
+                        .collectAsState(initial = false)
 
         if (showPractice) {
             PracticeGestureScreen(onBack = { showPractice = false })
         } else if (!onboardingComplete) {
             OnboardingScreen(
-                onComplete = {
-                    scope.launch {
-                        context.dataStore.edit { preferences ->
-                            preferences[PreferencesKeys.ONBOARDING_COMPLETE] = true
+                    onComplete = {
+                        scope.launch {
+                            context.dataStore.edit { preferences ->
+                                preferences[PreferencesKeys.ONBOARDING_COMPLETE] = true
+                            }
+                            startOverlayService()
                         }
-                        startOverlayService()
                     }
-                }
             )
         } else {
+            // Auto-start service if permissions are granted
+            LaunchedEffect(Unit) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                                Settings.canDrawOverlays(context)
+                ) {
+                    startOverlayService()
+                }
+            }
+
             HomeScreen(
-                onStartService = { startOverlayService() },
-                onStopService = { stopOverlayService() },
-                onOpenPractice = { showPractice = true }
+                    onStartService = { startOverlayService() },
+                    onStopService = { stopOverlayService() },
+                    onOpenPractice = { showPractice = true }
             )
         }
     }
@@ -103,137 +111,117 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HomeScreen(
-    onStartService: () -> Unit,
-    onStopService: () -> Unit,
-    onOpenPractice: () -> Unit
-) {
+fun HomeScreen(onStartService: () -> Unit, onStopService: () -> Unit, onOpenPractice: () -> Unit) {
     val context = LocalContext.current
     var isServiceRunning by remember { mutableStateOf(false) }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(PaddingValues(16.dp)),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier = Modifier.fillMaxSize().padding(PaddingValues(16.dp)),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "SearchLauncher",
-            style = MaterialTheme.typography.headlineLarge,
-            modifier = Modifier.padding(vertical = 16.dp)
+                text = "SearchLauncher",
+                style = MaterialTheme.typography.headlineLarge,
+                modifier = Modifier.padding(vertical = 16.dp)
         )
 
-        Card(
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        Card(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Text(text = "Service Status", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "Service Status",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = if (isServiceRunning) "Active" else "Inactive",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (isServiceRunning)
-                        MaterialTheme.colorScheme.primary
-                    else
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                        text = if (isServiceRunning) "Active" else "Inactive",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color =
+                                if (isServiceRunning) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Button(
-                    onClick = {
-                        if (isServiceRunning) {
-                            onStopService()
-                            isServiceRunning = false
-                        } else {
-                            onStartService()
-                            isServiceRunning = true
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(if (isServiceRunning) "Stop Service" else "Start Service")
-                }
+                        onClick = {
+                            if (isServiceRunning) {
+                                onStopService()
+                                isServiceRunning = false
+                            } else {
+                                onStartService()
+                                isServiceRunning = true
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                ) { Text(if (isServiceRunning) "Stop Service" else "Start Service") }
             }
         }
 
-        Card(
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        Card(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Text(text = "How to Use", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "How to Use",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = "1. Swipe from the edge of the screen\n" +
-                          "2. Swipe back to the edge\n" +
-                          "3. The search bar will appear\n" +
-                          "4. Start typing to search apps and content",
-                    style = MaterialTheme.typography.bodyMedium
+                        text =
+                                "1. Swipe from the edge of the screen\n" +
+                                        "2. Swipe back to the edge\n" +
+                                        "3. The search bar will appear\n" +
+                                        "4. Start typing to search apps and content",
+                        style = MaterialTheme.typography.bodyMedium
                 )
 
-                Button(
-                    onClick = onOpenPractice,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                Button(onClick = onOpenPractice, modifier = Modifier.fillMaxWidth()) {
                     Text("Practice Gesture")
                 }
             }
         }
 
-        Card(
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        Card(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = "Permissions",
-                    style = MaterialTheme.typography.titleMedium
+                Text(text = "Permissions", style = MaterialTheme.typography.titleMedium)
+
+                PermissionStatus(
+                        title = "Display Over Other Apps",
+                        granted =
+                                rememberPermissionState {
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                                Settings.canDrawOverlays(context)
+                                            } else true
+                                        }
+                                        .value,
+                        onGrant = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                val intent =
+                                        Intent(
+                                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                Uri.parse("package:${context.packageName}")
+                                        )
+                                context.startActivity(intent)
+                            }
+                        }
                 )
 
                 PermissionStatus(
-                    title = "Display Over Other Apps",
-                    granted = rememberPermissionState {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            Settings.canDrawOverlays(context)
-                        } else true
-                    }.value,
-                    onGrant = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            val intent = Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:${context.packageName}")
-                            )
+                        title = "Accessibility Service",
+                        granted =
+                                rememberPermissionState { isAccessibilityServiceEnabled(context) }
+                                        .value,
+                        onGrant = {
+                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                             context.startActivity(intent)
                         }
-                    }
                 )
 
                 PermissionStatus(
-                    title = "Accessibility Service",
-                    granted = rememberPermissionState { isAccessibilityServiceEnabled(context) }.value,
-                    onGrant = {
-                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                        context.startActivity(intent)
-                    }
-                )
-
-                PermissionStatus(
-                    title = "Usage Access (Optional)",
-                    granted = rememberPermissionState { hasUsageStatsPermission(context) }.value,
-                    onGrant = {
-                        val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-                        context.startActivity(intent)
-                    }
+                        title = "Usage Access (Optional)",
+                        granted =
+                                rememberPermissionState { hasUsageStatsPermission(context) }.value,
+                        onGrant = {
+                            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                            context.startActivity(intent)
+                        }
                 )
             }
         }
@@ -241,62 +229,51 @@ fun HomeScreen(
 }
 
 @Composable
-fun PermissionStatus(
-    title: String,
-    granted: Boolean,
-    onGrant: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
+fun PermissionStatus(title: String, granted: Boolean, onGrant: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.bodyMedium)
             Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                text = if (granted) "Granted" else "Not granted",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (granted)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.error
+                    text = if (granted) "Granted" else "Not granted",
+                    style = MaterialTheme.typography.bodySmall,
+                    color =
+                            if (granted) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.error
             )
         }
 
         if (!granted) {
-            TextButton(onClick = onGrant) {
-                Text("Grant")
-            }
+            TextButton(onClick = onGrant) { Text("Grant") }
         }
     }
 }
 
 fun isAccessibilityServiceEnabled(context: Context): Boolean {
-    val enabledServices = Settings.Secure.getString(
-        context.contentResolver,
-        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-    )
+    val enabledServices =
+            Settings.Secure.getString(
+                    context.contentResolver,
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            )
     return enabledServices?.contains(context.packageName) == true
 }
 
 fun hasUsageStatsPermission(context: Context): Boolean {
     return try {
         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            appOps.unsafeCheckOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                android.os.Process.myUid(),
-                context.packageName
-            )
-        } else {
-            appOps.checkOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                android.os.Process.myUid(),
-                context.packageName
-            )
-        }
+        val mode =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    appOps.unsafeCheckOpNoThrow(
+                            AppOpsManager.OPSTR_GET_USAGE_STATS,
+                            android.os.Process.myUid(),
+                            context.packageName
+                    )
+                } else {
+                    appOps.checkOpNoThrow(
+                            AppOpsManager.OPSTR_GET_USAGE_STATS,
+                            android.os.Process.myUid(),
+                            context.packageName
+                    )
+                }
         mode == AppOpsManager.MODE_ALLOWED
     } catch (e: Exception) {
         false

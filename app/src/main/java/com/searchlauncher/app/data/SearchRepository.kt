@@ -14,332 +14,504 @@ import kotlinx.coroutines.withContext
 
 class SearchRepository(private val context: Context) {
 
-    private var appSearchSession: AppSearchSession? = null
-    private val executor = Executors.newSingleThreadExecutor()
+        private var appSearchSession: AppSearchSession? = null
+        private val executor = Executors.newSingleThreadExecutor()
 
-    suspend fun initialize() =
-            withContext(Dispatchers.IO) {
-                android.util.Log.d("SearchRepository", "initialize: Starting")
-                try {
-                    val sessionFuture =
-                            LocalStorage.createSearchSessionAsync(
-                                    LocalStorage.SearchContext.Builder(context, "searchlauncher_db")
-                                            .build()
-                            )
-                    appSearchSession = sessionFuture.get()
-                    android.util.Log.d("SearchRepository", "initialize: Session created")
+        suspend fun initialize() =
+                withContext(Dispatchers.IO) {
+                        android.util.Log.d("SearchRepository", "initialize: Starting")
+                        try {
+                                val sessionFuture =
+                                        LocalStorage.createSearchSessionAsync(
+                                                LocalStorage.SearchContext.Builder(
+                                                                context,
+                                                                "searchlauncher_db"
+                                                        )
+                                                        .build()
+                                        )
+                                appSearchSession = sessionFuture.get()
+                                android.util.Log.d(
+                                        "SearchRepository",
+                                        "initialize: Session created"
+                                )
 
-                    // Set schema
-                    val setSchemaRequest =
-                            SetSchemaRequest.Builder()
-                                    .addDocumentClasses(AppSearchDocument::class.java)
-                                    .build()
-                    appSearchSession?.setSchemaAsync(setSchemaRequest)?.get()
-                    android.util.Log.d("SearchRepository", "initialize: Schema set")
+                                // Set schema
+                                val setSchemaRequest =
+                                        SetSchemaRequest.Builder()
+                                                .addDocumentClasses(AppSearchDocument::class.java)
+                                                .build()
+                                appSearchSession?.setSchemaAsync(setSchemaRequest)?.get()
+                                android.util.Log.d("SearchRepository", "initialize: Schema set")
 
-                    // Index apps
-                    indexApps()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    android.util.Log.e("SearchRepository", "initialize: Error", e)
-                }
-            }
-
-    private suspend fun indexApps() =
-            withContext(Dispatchers.IO) {
-                val session = appSearchSession ?: return@withContext
-                val packageManager = context.packageManager
-                val intent =
-                        Intent(Intent.ACTION_MAIN, null).apply {
-                            addCategory(Intent.CATEGORY_LAUNCHER)
+                                // Index apps
+                                indexApps()
+                        } catch (e: Exception) {
+                                e.printStackTrace()
+                                android.util.Log.e("SearchRepository", "initialize: Error", e)
                         }
+                }
 
-                val apps =
-                        packageManager
-                                .queryIntentActivities(intent, 0)
-                                .filter { resolveInfo ->
-                                    val appInfo = resolveInfo.activityInfo.applicationInfo
-                                    (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) == 0 ||
-                                            (appInfo.flags and
-                                                    ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
-                                }
-                                .mapNotNull { resolveInfo ->
-                                    try {
-                                        val appName =
-                                                resolveInfo.loadLabel(packageManager).toString()
-                                        val packageName = resolveInfo.activityInfo.packageName
+        suspend fun indexCustomShortcuts() =
+                withContext(Dispatchers.IO) {
+                        android.util.Log.d("SearchRepository", "indexCustomShortcuts: Starting")
+                        val session = appSearchSession ?: return@withContext
 
-                                        // Get category
-                                        val category =
-                                                if (android.os.Build.VERSION.SDK_INT >=
-                                                                android.os.Build.VERSION_CODES.O
-                                                ) {
-                                                    val appInfo =
-                                                            resolveInfo.activityInfo.applicationInfo
-                                                    when (appInfo.category) {
-                                                        ApplicationInfo.CATEGORY_GAME -> "Game"
-                                                        ApplicationInfo.CATEGORY_AUDIO -> "Audio"
-                                                        ApplicationInfo.CATEGORY_VIDEO -> "Video"
-                                                        ApplicationInfo.CATEGORY_IMAGE -> "Image"
-                                                        ApplicationInfo.CATEGORY_SOCIAL -> "Social"
-                                                        ApplicationInfo.CATEGORY_NEWS -> "News"
-                                                        ApplicationInfo.CATEGORY_MAPS -> "Maps"
-                                                        ApplicationInfo.CATEGORY_PRODUCTIVITY ->
-                                                                "Productivity"
-                                                        else -> "Application"
-                                                    }
-                                                } else {
-                                                    "Application"
+                        data class ShortcutInfo(
+                                val idSuffix: String,
+                                val docDescription: String?,
+                                val intentUri: String,
+                                val isAction: Boolean
+                        )
+
+                        val shortcuts =
+                                CustomShortcuts.shortcuts.map { shortcut ->
+                                        val info =
+                                                when (shortcut) {
+                                                        is CustomShortcut.Search -> {
+                                                                // Search: id based on trigger,
+                                                                // description = trigger
+                                                                val trigger = shortcut.trigger
+                                                                ShortcutInfo(
+                                                                        trigger,
+                                                                        trigger,
+                                                                        shortcut.urlTemplate,
+                                                                        false
+                                                                )
+                                                        }
+                                                        is CustomShortcut.Action -> {
+                                                                // Action: id based on description
+                                                                // slug
+                                                                val slug =
+                                                                        shortcut.description
+                                                                                .replace(
+                                                                                        Regex(
+                                                                                                "[^a-zA-Z0-9]"
+                                                                                        ),
+                                                                                        ""
+                                                                                )
+                                                                                .lowercase()
+                                                                ShortcutInfo(
+                                                                        slug,
+                                                                        null,
+                                                                        shortcut.intentUri,
+                                                                        true
+                                                                )
+                                                        }
                                                 }
 
                                         AppSearchDocument(
-                                                namespace = "apps",
-                                                id = packageName,
-                                                name = appName,
-                                                score = 2, // Apps have higher priority than
-                                                // shortcuts
-                                                description = category
+                                                namespace = "custom_shortcuts",
+                                                id = "custom_${info.idSuffix}",
+                                                name = shortcut.description,
+                                                score = 3,
+                                                description = info.docDescription,
+                                                intentUri = info.intentUri,
+                                                isAction = info.isAction
                                         )
-                                    } catch (e: Exception) {
-                                        null
-                                    }
                                 }
 
-                if (apps.isNotEmpty()) {
-                    val putRequest = PutDocumentsRequest.Builder().addDocuments(apps).build()
-                    session.putAsync(putRequest).get()
-                }
-
-                indexShortcuts()
-            }
-
-    suspend fun indexShortcuts() =
-            withContext(Dispatchers.IO) {
-                android.util.Log.d("SearchRepository", "indexShortcuts: Starting")
-                val session = appSearchSession ?: return@withContext
-                val launcherApps =
-                        context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as
-                                android.content.pm.LauncherApps
-                val userManager =
-                        context.getSystemService(Context.USER_SERVICE) as android.os.UserManager
-
-                val shortcuts = mutableListOf<AppSearchDocument>()
-                val user = android.os.Process.myUserHandle()
-
-                try {
-                    val query = android.content.pm.LauncherApps.ShortcutQuery()
-                    query.setQueryFlags(
-                            android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
-                                    android.content.pm.LauncherApps.ShortcutQuery
-                                            .FLAG_MATCH_MANIFEST
-                    )
-
-                    val shortcutList = launcherApps.getShortcuts(query, user) ?: emptyList()
-                    android.util.Log.d(
-                            "SearchRepository",
-                            "indexShortcuts: Found ${shortcutList.size} shortcuts"
-                    )
-
-                    for (shortcut in shortcutList) {
-                        try {
-                            val intent =
-                                    try {
-                                        // We can't easily get the exact intent for a shortcut
-                                        // without starting it,
-                                        // but we can store the ID and package to launch it via
-                                        // LauncherApps later.
-                                        // However, for AppSearch we need a string.
-                                        // Let's store a custom URI scheme:
-                                        // shortcut://<package>/<id>
-                                        "shortcut://${shortcut.`package`}/${shortcut.id}"
-                                    } catch (e: Exception) {
-                                        continue
-                                    }
-
-                            shortcuts.add(
-                                    AppSearchDocument(
-                                            namespace = "shortcuts",
-                                            id = "${shortcut.`package`}/${shortcut.id}",
-                                            name = shortcut.shortLabel?.toString()
-                                                            ?: shortcut.longLabel?.toString() ?: "",
-                                            score = 1,
-                                            intentUri = intent,
-                                            description = "Shortcut"
-                                    )
-                            )
-                        } catch (e: Exception) {
-                            // Ignore
-                        }
-                    }
-
-                    if (shortcuts.isNotEmpty()) {
-                        val putRequest =
-                                PutDocumentsRequest.Builder().addDocuments(shortcuts).build()
-                        session.putAsync(putRequest).get()
-                        android.util.Log.d(
-                                "SearchRepository",
-                                "indexShortcuts: Indexed ${shortcuts.size} shortcuts"
-                        )
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    android.util.Log.e("SearchRepository", "indexShortcuts: Error", e)
-                }
-            }
-
-    suspend fun searchApps(query: String): List<SearchResult> =
-            withContext(Dispatchers.IO) {
-                val startTime = System.currentTimeMillis()
-                val session = appSearchSession
-                if (session == null) {
-                    android.util.Log.w("SearchRepository", "Session not initialized")
-                    return@withContext emptyList()
-                }
-
-                val results = mutableListOf<SearchResult>()
-
-                try {
-                    val searchSpec =
-                            SearchSpec.Builder()
-                                    .setRankingStrategy(SearchSpec.RANKING_STRATEGY_DOCUMENT_SCORE)
-                                    .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
-                                    .build()
-
-                    val searchResults = session.search(query, searchSpec)
-                    var nextPage = searchResults.nextPageAsync.get()
-
-                    while (nextPage.isNotEmpty()) {
-                        for (result in nextPage) {
-                            val doc =
-                                    result.genericDocument.toDocumentClass(
-                                            AppSearchDocument::class.java
-                                    )
-                            val packageName = doc.id
-
-                            // Check namespace to distinguish between apps and shortcuts
-                            if (result.genericDocument.namespace == "shortcuts") {
-                                results.add(
-                                        SearchResult.Shortcut(
-                                                id = doc.id,
-                                                title = doc.name,
-                                                subtitle = doc.description ?: "Shortcut",
-                                                icon = null, // Shortcuts might not have easily
-                                                // accessible icons
-                                                packageName = doc.id.split("/").firstOrNull() ?: "",
-                                                intentUri = doc.intentUri ?: ""
-                                        )
+                        if (shortcuts.isNotEmpty()) {
+                                val putRequest =
+                                        PutDocumentsRequest.Builder()
+                                                .addDocuments(shortcuts)
+                                                .build()
+                                session.putAsync(putRequest).get()
+                                android.util.Log.d(
+                                        "SearchRepository",
+                                        "indexCustomShortcuts: Indexed ${shortcuts.size} custom shortcuts"
                                 )
-                            } else {
-                                // It's an app
-                                val icon =
-                                        try {
-                                            context.packageManager.getApplicationIcon(packageName)
-                                        } catch (e: Exception) {
-                                            null
+                        }
+                }
+        private suspend fun indexApps() =
+                withContext(Dispatchers.IO) {
+                        val session = appSearchSession ?: return@withContext
+                        val packageManager = context.packageManager
+                        val intent =
+                                Intent(Intent.ACTION_MAIN, null).apply {
+                                        addCategory(Intent.CATEGORY_LAUNCHER)
+                                }
+
+                        val apps =
+                                packageManager
+                                        .queryIntentActivities(intent, 0)
+                                        .filter { resolveInfo ->
+                                                val appInfo =
+                                                        resolveInfo.activityInfo.applicationInfo
+                                                (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) ==
+                                                        0 ||
+                                                        (appInfo.flags and
+                                                                ApplicationInfo
+                                                                        .FLAG_UPDATED_SYSTEM_APP) !=
+                                                                0
+                                        }
+                                        .mapNotNull { resolveInfo ->
+                                                try {
+                                                        val appName =
+                                                                resolveInfo
+                                                                        .loadLabel(packageManager)
+                                                                        .toString()
+                                                        val packageName =
+                                                                resolveInfo.activityInfo.packageName
+
+                                                        // Get category
+                                                        val category =
+                                                                if (android.os.Build.VERSION
+                                                                                .SDK_INT >=
+                                                                                android.os.Build
+                                                                                        .VERSION_CODES
+                                                                                        .O
+                                                                ) {
+                                                                        val appInfo =
+                                                                                resolveInfo
+                                                                                        .activityInfo
+                                                                                        .applicationInfo
+                                                                        when (appInfo.category) {
+                                                                                ApplicationInfo
+                                                                                        .CATEGORY_GAME ->
+                                                                                        "Game"
+                                                                                ApplicationInfo
+                                                                                        .CATEGORY_AUDIO ->
+                                                                                        "Audio"
+                                                                                ApplicationInfo
+                                                                                        .CATEGORY_VIDEO ->
+                                                                                        "Video"
+                                                                                ApplicationInfo
+                                                                                        .CATEGORY_IMAGE ->
+                                                                                        "Image"
+                                                                                ApplicationInfo
+                                                                                        .CATEGORY_SOCIAL ->
+                                                                                        "Social"
+                                                                                ApplicationInfo
+                                                                                        .CATEGORY_NEWS ->
+                                                                                        "News"
+                                                                                ApplicationInfo
+                                                                                        .CATEGORY_MAPS ->
+                                                                                        "Maps"
+                                                                                ApplicationInfo
+                                                                                        .CATEGORY_PRODUCTIVITY ->
+                                                                                        "Productivity"
+                                                                                else ->
+                                                                                        "Application"
+                                                                        }
+                                                                } else {
+                                                                        "Application"
+                                                                }
+
+                                                        AppSearchDocument(
+                                                                namespace = "apps",
+                                                                id = packageName,
+                                                                name = appName,
+                                                                score = 2, // Apps have higher
+                                                                // priority than
+                                                                // shortcuts
+                                                                description = category
+                                                        )
+                                                } catch (e: Exception) {
+                                                        null
+                                                }
                                         }
 
-                                results.add(
-                                        SearchResult.App(
-                                                id = doc.id,
-                                                title = doc.name,
-                                                subtitle = doc.description ?: doc.id,
-                                                icon = icon,
-                                                packageName = doc.id
-                                        )
-                                )
-                            }
-                        }
-                        nextPage = searchResults.nextPageAsync.get()
-                    }
-
-                    // 1. Check for custom shortcuts (Direct use: "g test")
-                    if (query.isNotEmpty()) {
-                        val parts = query.split(" ", limit = 2)
-                        if (parts.size >= 2) {
-                            val trigger = parts[0]
-                            val searchTerm = parts[1]
-                            val shortcut = CustomShortcuts.shortcuts.find { it.trigger == trigger }
-
-                            if (shortcut != null) {
-                                val url =
-                                        String.format(
-                                                shortcut.urlTemplate,
-                                                java.net.URLEncoder.encode(searchTerm, "UTF-8")
-                                        )
-                                results.add(
-                                        0, // Add to top
-                                        SearchResult.Content(
-                                                id = "shortcut_${shortcut.trigger}",
-                                                title = "${shortcut.description}: $searchTerm",
-                                                subtitle = "Custom Shortcut",
-                                                icon = null, // TODO: Add icon
-                                                packageName = shortcut.packageName ?: "android",
-                                                deepLink = url
-                                        )
-                                )
-                            }
+                        if (apps.isNotEmpty()) {
+                                val putRequest =
+                                        PutDocumentsRequest.Builder().addDocuments(apps).build()
+                                session.putAsync(putRequest).get()
                         }
 
-                        // 2. Discover intents (Search for "youtube" -> show "yt" shortcut)
-                        val matchingShortcuts =
-                                CustomShortcuts.shortcuts.filter {
-                                    it.description.contains(query, ignoreCase = true) ||
-                                            it.trigger.contains(query, ignoreCase = true)
-                                }
-
-                        for (shortcut in matchingShortcuts) {
-                            results.add(
-                                    SearchResult.SearchIntent(
-                                            id = "intent_${shortcut.trigger}",
-                                            title = "Use ${shortcut.description}",
-                                            subtitle = "Type '${shortcut.trigger} ' to search",
-                                            icon = null,
-                                            trigger = shortcut.trigger
-                                    )
-                            )
-                        }
-
-                        results.add(
-                                SearchResult.Content(
-                                        id = "web_search",
-                                        title = "Search \"$query\" in Browser",
-                                        subtitle = "Web Search",
-                                        icon = null, // TODO: Add browser icon
-                                        packageName = "android",
-                                        deepLink = "https://www.google.com/search?q=$query"
-                                )
-                        )
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                        indexShortcuts()
                 }
 
-                val duration = System.currentTimeMillis() - startTime
-                android.util.Log.d(
-                        "SearchRepository",
-                        "searchApps: took $duration ms for query '$query'"
-                )
+        suspend fun indexShortcuts() =
+                withContext(Dispatchers.IO) {
+                        android.util.Log.d("SearchRepository", "indexShortcuts: Starting")
+                        val session = appSearchSession ?: return@withContext
+                        val launcherApps =
+                                context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as
+                                        android.content.pm.LauncherApps
+                        val userManager =
+                                context.getSystemService(Context.USER_SERVICE) as
+                                        android.os.UserManager
 
-                results
-            }
+                        val shortcuts = mutableListOf<AppSearchDocument>()
+                        val user = android.os.Process.myUserHandle()
 
-    // ... (rest of the class)
+                        try {
+                                val query = android.content.pm.LauncherApps.ShortcutQuery()
+                                query.setQueryFlags(
+                                        android.content.pm.LauncherApps.ShortcutQuery
+                                                .FLAG_MATCH_DYNAMIC or
+                                                android.content.pm.LauncherApps.ShortcutQuery
+                                                        .FLAG_MATCH_MANIFEST
+                                )
 
-    suspend fun searchContent(query: String): List<SearchResult.Content> =
-            withContext(Dispatchers.IO) {
-                // ... (keep existing empty implementation or update if needed)
-                emptyList()
-            }
+                                val shortcutList =
+                                        launcherApps.getShortcuts(query, user) ?: emptyList()
+                                android.util.Log.d(
+                                        "SearchRepository",
+                                        "indexShortcuts: Found ${shortcutList.size} shortcuts"
+                                )
 
-    suspend fun search(query: String): List<SearchResult> =
-            withContext(Dispatchers.IO) {
-                val apps = searchApps(query)
-                // val content = searchContent(query) // Commented out for now as it was empty/dummy
-                apps
-            }
+                                for (shortcut in shortcutList) {
+                                        try {
+                                                val intent =
+                                                        try {
+                                                                // We can't easily get the exact
+                                                                // intent for a shortcut
+                                                                // without starting it,
+                                                                // but we can store the ID and
+                                                                // package to launch it via
+                                                                // LauncherApps later.
+                                                                // However, for AppSearch we need a
+                                                                // string.
+                                                                // Let's store a custom URI scheme:
+                                                                // shortcut://<package>/<id>
+                                                                "shortcut://${shortcut.`package`}/${shortcut.id}"
+                                                        } catch (e: Exception) {
+                                                                continue
+                                                        }
 
-    fun close() {
-        appSearchSession?.close()
-        executor.shutdown()
-    }
+                                                shortcuts.add(
+                                                        AppSearchDocument(
+                                                                namespace = "shortcuts",
+                                                                id =
+                                                                        "${shortcut.`package`}/${shortcut.id}",
+                                                                name =
+                                                                        shortcut.shortLabel
+                                                                                ?.toString()
+                                                                                ?: shortcut.longLabel
+                                                                                        ?.toString()
+                                                                                        ?: "",
+                                                                score = 1,
+                                                                intentUri = intent,
+                                                                description = "Shortcut"
+                                                        )
+                                                )
+                                        } catch (e: Exception) {
+                                                // Ignore
+                                        }
+                                }
+
+                                if (shortcuts.isNotEmpty()) {
+                                        val putRequest =
+                                                PutDocumentsRequest.Builder()
+                                                        .addDocuments(shortcuts)
+                                                        .build()
+                                        session.putAsync(putRequest).get()
+                                        android.util.Log.d(
+                                                "SearchRepository",
+                                                "indexShortcuts: Indexed ${shortcuts.size} shortcuts"
+                                        )
+                                }
+                        } catch (e: Exception) {
+                                e.printStackTrace()
+                                android.util.Log.e("SearchRepository", "indexShortcuts: Error", e)
+                        }
+                }
+
+        suspend fun searchApps(query: String): List<SearchResult> =
+                withContext(Dispatchers.IO) {
+                        val startTime = System.currentTimeMillis()
+                        val session = appSearchSession
+                        if (session == null) {
+                                android.util.Log.w("SearchRepository", "Session not initialized")
+                                return@withContext emptyList()
+                        }
+
+                        val results = mutableListOf<SearchResult>()
+
+                        try {
+                                val searchSpec =
+                                        SearchSpec.Builder()
+                                                .setRankingStrategy(
+                                                        SearchSpec.RANKING_STRATEGY_DOCUMENT_SCORE
+                                                )
+                                                .setTermMatch(SearchSpec.TERM_MATCH_PREFIX)
+                                                .build()
+
+                                val searchResults = session.search(query, searchSpec)
+                                var nextPage = searchResults.nextPageAsync.get()
+
+                                while (nextPage.isNotEmpty()) {
+                                        for (result in nextPage) {
+                                                val doc =
+                                                        result.genericDocument.toDocumentClass(
+                                                                AppSearchDocument::class.java
+                                                        )
+                                                val packageName = doc.id
+
+                                                // Check namespace to distinguish between apps and
+                                                // shortcuts
+                                                if (result.genericDocument.namespace == "shortcuts"
+                                                ) {
+                                                        results.add(
+                                                                SearchResult.Shortcut(
+                                                                        id = doc.id,
+                                                                        title = doc.name,
+                                                                        subtitle = doc.description
+                                                                                        ?: "Shortcut",
+                                                                        icon = null, // Shortcuts
+                                                                        // might not
+                                                                        // have easily
+                                                                        // accessible icons
+                                                                        packageName =
+                                                                                doc.id
+                                                                                        .split("/")
+                                                                                        .firstOrNull()
+                                                                                        ?: "",
+                                                                        intentUri = doc.intentUri
+                                                                                        ?: ""
+                                                                )
+                                                        )
+                                                } else if (result.genericDocument.namespace ==
+                                                                "custom_shortcuts"
+                                                ) {
+                                                        if (doc.isAction) {
+                                                                // Direct action (e.g. ADB Wireless)
+                                                                results.add(
+                                                                        SearchResult.Content(
+                                                                                id = doc.id,
+                                                                                title = doc.name,
+                                                                                subtitle = "Action",
+                                                                                icon = null,
+                                                                                packageName =
+                                                                                        "android",
+                                                                                deepLink =
+                                                                                        doc.intentUri
+                                                                        )
+                                                                )
+                                                        } else {
+                                                                // Search template (e.g. YouTube
+                                                                // Search)
+                                                                results.add(
+                                                                        SearchResult.SearchIntent(
+                                                                                id = doc.id,
+                                                                                title = doc.name,
+                                                                                subtitle =
+                                                                                        "Type '${doc.description} ' to search",
+                                                                                icon = null,
+                                                                                trigger =
+                                                                                        doc.description
+                                                                                                ?: ""
+                                                                        )
+                                                                )
+                                                        }
+                                                } else {
+                                                        // It's an app
+                                                        val icon =
+                                                                try {
+                                                                        context.packageManager
+                                                                                .getApplicationIcon(
+                                                                                        packageName
+                                                                                )
+                                                                } catch (e: Exception) {
+                                                                        null
+                                                                }
+
+                                                        results.add(
+                                                                SearchResult.App(
+                                                                        id = doc.id,
+                                                                        title = doc.name,
+                                                                        subtitle = doc.description
+                                                                                        ?: doc.id,
+                                                                        icon = icon,
+                                                                        packageName = doc.id
+                                                                )
+                                                        )
+                                                }
+                                        }
+                                        nextPage = searchResults.nextPageAsync.get()
+                                }
+
+                                // 1. Check for custom shortcuts (Direct use: "g test")
+                                if (query.isNotEmpty()) {
+                                        val parts = query.split(" ", limit = 2)
+                                        if (parts.size >= 2) {
+                                                val trigger = parts[0]
+                                                val searchTerm = parts[1]
+                                                val shortcut =
+                                                        CustomShortcuts.shortcuts.filterIsInstance<
+                                                                        CustomShortcut.Search>()
+                                                                .find {
+                                                                        it.trigger.equals(
+                                                                                trigger,
+                                                                                ignoreCase = true
+                                                                        )
+                                                                }
+
+                                                if (shortcut != null) {
+                                                        val url =
+                                                                String.format(
+                                                                        shortcut.urlTemplate,
+                                                                        java.net.URLEncoder.encode(
+                                                                                searchTerm,
+                                                                                "UTF-8"
+                                                                        )
+                                                                )
+                                                        results.add(
+                                                                0, // Add to top
+                                                                SearchResult.Content(
+                                                                        id =
+                                                                                "shortcut_${shortcut.trigger}",
+                                                                        title =
+                                                                                "${shortcut.description}: $searchTerm",
+                                                                        subtitle =
+                                                                                "Custom Shortcut",
+                                                                        icon = null, // TODO: Add
+                                                                        // icon
+                                                                        packageName =
+                                                                                shortcut.packageName
+                                                                                        ?: "android",
+                                                                        deepLink = url
+                                                                )
+                                                        )
+                                                }
+                                        }
+
+                                        // 2. Discover intents (REMOVED: Handled by AppSearch
+                                        // indexing above)
+
+                                        results.add(
+                                                SearchResult.Content(
+                                                        id = "web_search",
+                                                        title = "Search \"$query\" in Browser",
+                                                        subtitle = "Web Search",
+                                                        icon = null, // TODO: Add browser icon
+                                                        packageName = "android",
+                                                        deepLink =
+                                                                "https://www.google.com/search?q=$query"
+                                                )
+                                        )
+                                }
+                        } catch (e: Exception) {
+                                e.printStackTrace()
+                        }
+
+                        val duration = System.currentTimeMillis() - startTime
+                        android.util.Log.d(
+                                "SearchRepository",
+                                "searchApps: took $duration ms for query '$query'"
+                        )
+
+                        results
+                }
+
+        // ... (rest of the class)
+
+        suspend fun searchContent(query: String): List<SearchResult.Content> =
+                withContext(Dispatchers.IO) {
+                        // ... (keep existing empty implementation or update if needed)
+                        emptyList()
+                }
+
+        suspend fun search(query: String): List<SearchResult> =
+                withContext(Dispatchers.IO) {
+                        val apps = searchApps(query)
+                        // val content = searchContent(query) // Commented out for now as it was
+                        // empty/dummy
+                        apps
+                }
+
+        fun close() {
+                appSearchSession?.close()
+                executor.shutdown()
+        }
 }

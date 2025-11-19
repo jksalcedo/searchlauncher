@@ -19,5 +19,7 @@ data class AppSearchDocument(
         @Document.StringProperty(
                 indexingType = AppSearchSchema.StringPropertyConfig.INDEXING_TYPE_PREFIXES
         )
-        val description: String? = null // App Category or Description
+        val description: String? = null, // App Category or Description
+        @Document.BooleanProperty
+        val isAction: Boolean = false // True if this is a direct action (not a search template)
 )
