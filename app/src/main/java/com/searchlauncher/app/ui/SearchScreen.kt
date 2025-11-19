@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.PopupProperties
 import com.searchlauncher.app.data.SearchRepository
 import com.searchlauncher.app.data.SearchResult
 import com.searchlauncher.app.ui.theme.SearchLauncherTheme
@@ -146,13 +147,19 @@ fun SearchScreen(
                                     reverseLayout = true,
                                     contentPadding = PaddingValues(vertical = 8.dp)
                             ) {
-                                items(searchResults, key = { "${it.namespace}/${it.id}" }) { result ->
+                                items(searchResults, key = { "${it.namespace}/${it.id}" }) { result
+                                    ->
                                     SearchResultItem(
                                             result = result,
                                             isFavorite = favoriteIds.contains(result.id),
-                                            onToggleFavorite = if (result is SearchResult.App) {
-                                                { app.favoritesRepository.toggleFavorite(result.id) }
-                                            } else null,
+                                            onToggleFavorite =
+                                                    if (result is SearchResult.App) {
+                                                        {
+                                                            app.favoritesRepository.toggleFavorite(
+                                                                    result.id
+                                                            )
+                                                        }
+                                                    } else null,
                                             onClick = {
                                                 if (result is SearchResult.SearchIntent) {
                                                     if (isFallbackMode && query.isNotEmpty()) {
@@ -169,14 +176,16 @@ fun SearchScreen(
                                                         if (shortcut != null) {
                                                             try {
                                                                 val url =
-                                                                        shortcut.urlTemplate.replace(
-                                                                                "%s",
-                                                                                java.net.URLEncoder
-                                                                                        .encode(
-                                                                                                query,
-                                                                                                "UTF-8"
-                                                                                        )
-                                                                        )
+                                                                        shortcut.urlTemplate
+                                                                                .replace(
+                                                                                        "%s",
+                                                                                        java.net
+                                                                                                .URLEncoder
+                                                                                                .encode(
+                                                                                                        query,
+                                                                                                        "UTF-8"
+                                                                                                )
+                                                                                )
                                                                 val intent =
                                                                         Intent(
                                                                                 Intent.ACTION_VIEW,
@@ -256,12 +265,6 @@ fun SearchScreen(
                                             .padding(horizontal = 12.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
                         val activeShortcut =
                                 remember(query) {
                                     com.searchlauncher.app.data.CustomShortcuts.shortcuts
@@ -269,6 +272,29 @@ fun SearchScreen(
                                                     com.searchlauncher.app.data.CustomShortcut.Search>()
                                             .find { query.startsWith("${it.trigger} ") }
                                 }
+
+                        if (activeShortcut != null) {
+                            Surface(
+                                    color = activeShortcut.color?.let { Color(it.toInt()) }
+                                                    ?: MaterialTheme.colorScheme.primary,
+                                    shape = RoundedCornerShape(8.dp),
+                            ) {
+                                Text(
+                                        text = activeShortcut.trigger,
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        modifier =
+                                                Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                        } else {
+                            Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
 
                         val displayQuery =
                                 if (activeShortcut != null) {
@@ -325,7 +351,8 @@ fun SearchScreen(
                                                 onGo = {
                                                     val topResult = searchResults.firstOrNull()
                                                     if (topResult != null) {
-                                                        if (topResult is SearchResult.SearchIntent) {
+                                                        if (topResult is SearchResult.SearchIntent
+                                                        ) {
                                                             onQueryChange(topResult.trigger + " ")
                                                         } else {
                                                             launchResult(
@@ -374,10 +401,10 @@ fun SearchScreen(
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun SearchResultItem(
-    result: SearchResult,
-    isFavorite: Boolean = false,
-    onToggleFavorite: (() -> Unit)? = null,
-    onClick: () -> Unit
+        result: SearchResult,
+        isFavorite: Boolean = false,
+        onToggleFavorite: (() -> Unit)? = null,
+        onClick: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -386,14 +413,14 @@ private fun SearchResultItem(
                 modifier =
                         Modifier.fillMaxWidth()
                                 .then(
-                                    if (onToggleFavorite != null) {
-                                        Modifier.combinedClickable(
-                                            onClick = onClick,
-                                            onLongClick = { showMenu = true }
-                                        )
-                                    } else {
-                                        Modifier.clickable(onClick = onClick)
-                                    }
+                                        if (onToggleFavorite != null) {
+                                            Modifier.combinedClickable(
+                                                    onClick = onClick,
+                                                    onLongClick = { showMenu = true }
+                                            )
+                                        } else {
+                                            Modifier.clickable(onClick = onClick)
+                                        }
                                 )
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -401,7 +428,8 @@ private fun SearchResultItem(
             Box(modifier = Modifier.size(40.dp)) {
                 if (result.icon != null) {
                     val iconModifier =
-                            if (result is SearchResult.Contact || result is SearchResult.QuickCopy) {
+                            if (result is SearchResult.Contact || result is SearchResult.QuickCopy
+                            ) {
                                 Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
                             } else {
                                 Modifier.size(40.dp)
@@ -441,25 +469,30 @@ private fun SearchResultItem(
         if (showMenu && onToggleFavorite != null) {
             val context = LocalContext.current
             DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    properties = PopupProperties(focusable = false)
             ) {
                 DropdownMenuItem(
-                    text = { Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites") },
-                    onClick = {
-                        onToggleFavorite()
-                        showMenu = false
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = if (isFavorite) {
-                                androidx.compose.material.icons.Icons.Default.Star
-                            } else {
-                                androidx.compose.material.icons.Icons.Default.StarBorder
-                            },
-                            contentDescription = null
-                        )
-                    }
+                        text = {
+                            Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites")
+                        },
+                        onClick = {
+                            onToggleFavorite()
+                            showMenu = false
+                        },
+                        leadingIcon = {
+                            Icon(
+                                    imageVector =
+                                            if (isFavorite) {
+                                                androidx.compose.material.icons.Icons.Default.Star
+                                            } else {
+                                                androidx.compose.material.icons.Icons.Default
+                                                        .StarBorder
+                                            },
+                                    contentDescription = null
+                            )
+                        }
                 )
 
                 if (result is SearchResult.App) {
@@ -606,10 +639,12 @@ private fun launchResult(
             }
         }
         is SearchResult.QuickCopy -> {
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clipboard =
+                    context.getSystemService(Context.CLIPBOARD_SERVICE) as
+                            android.content.ClipboardManager
             val clip = android.content.ClipData.newPlainText(result.alias, result.content)
             clipboard.setPrimaryClip(clip)
-            Toast.makeText(context, "Copied ${result.alias}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Copied ${result.content}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -629,12 +664,7 @@ private fun Drawable.toImageBitmap(): ImageBitmap? {
                 } else {
                     val width = intrinsicWidth.takeIf { it > 0 } ?: 1
                     val height = intrinsicHeight.takeIf { it > 0 } ?: 1
-                    val bitmap =
-                            Bitmap.createBitmap(
-                                    width,
-                                    height,
-                                    Bitmap.Config.ARGB_8888
-                            )
+                    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                     val canvas = Canvas(bitmap)
                     setBounds(0, 0, canvas.width, canvas.height)
                     draw(canvas)
@@ -675,8 +705,8 @@ private fun FavoritesRow(
                             Modifier.size(iconSize)
                                     .clip(RoundedCornerShape(12.dp))
                                     .combinedClickable(
-                                        onClick = { onLaunch(result) },
-                                        onLongClick = { showMenu = true }
+                                            onClick = { onLaunch(result) },
+                                            onLongClick = { showMenu = true }
                                     ),
                     contentAlignment = Alignment.Center
             ) {
@@ -692,54 +722,70 @@ private fun FavoritesRow(
                 }
 
                 DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                        properties = PopupProperties(focusable = false)
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Remove from Favorites") },
-                        onClick = {
-                            onRemoveFavorite(result)
-                            showMenu = false
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Star,
-                                contentDescription = null
-                            )
-                        }
+                            text = { Text("Remove from Favorites") },
+                            onClick = {
+                                onRemoveFavorite(result)
+                                showMenu = false
+                            },
+                            leadingIcon = {
+                                Icon(imageVector = Icons.Default.Star, contentDescription = null)
+                            }
                     )
 
                     if (result is SearchResult.App) {
                         val context = LocalContext.current
                         DropdownMenuItem(
-                            text = { Text("App Info") },
-                            onClick = {
-                                try {
-                                    val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                                    intent.data = Uri.parse("package:${result.packageName}")
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Cannot open App Info", Toast.LENGTH_SHORT).show()
+                                text = { Text("App Info") },
+                                onClick = {
+                                    try {
+                                        val intent =
+                                                Intent(
+                                                        android.provider.Settings
+                                                                .ACTION_APPLICATION_DETAILS_SETTINGS
+                                                )
+                                        intent.data = Uri.parse("package:${result.packageName}")
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(
+                                                        context,
+                                                        "Cannot open App Info",
+                                                        Toast.LENGTH_SHORT
+                                                )
+                                                .show()
+                                    }
+                                    showMenu = false
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Info, contentDescription = null)
                                 }
-                                showMenu = false
-                            },
-                            leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) }
                         )
                         DropdownMenuItem(
-                            text = { Text("Uninstall") },
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_DELETE)
-                                    intent.data = Uri.parse("package:${result.packageName}")
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Cannot start uninstall", Toast.LENGTH_SHORT).show()
+                                text = { Text("Uninstall") },
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_DELETE)
+                                        intent.data = Uri.parse("package:${result.packageName}")
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(
+                                                        context,
+                                                        "Cannot start uninstall",
+                                                        Toast.LENGTH_SHORT
+                                                )
+                                                .show()
+                                    }
+                                    showMenu = false
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Delete, contentDescription = null)
                                 }
-                                showMenu = false
-                            },
-                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) }
                         )
                     }
                 }
