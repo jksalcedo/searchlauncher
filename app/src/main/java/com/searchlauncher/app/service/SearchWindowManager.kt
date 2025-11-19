@@ -210,7 +210,7 @@ class SearchWindowManager(private val context: Context, private val windowManage
                             dimAmount = 0.5f
                             softInputMode =
                                     WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
-                                            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                                            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
                         }
 
         windowManager.addView(rootLayout, params)
@@ -271,6 +271,16 @@ class SearchWindowManager(private val context: Context, private val windowManage
         }
     }
 
+    private fun getSavedKeyboardHeight(): Int {
+        val prefs = context.getSharedPreferences("search_prefs", Context.MODE_PRIVATE)
+        return prefs.getInt("keyboard_height", 0)
+    }
+
+    private fun saveKeyboardHeight(height: Int) {
+        val prefs = context.getSharedPreferences("search_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putInt("keyboard_height", height).apply()
+    }
+
     @Composable
     private fun SearchUI(
             queryState: State<String>,
@@ -284,6 +294,22 @@ class SearchWindowManager(private val context: Context, private val windowManage
         var searchResults by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
         var isLoading by remember { mutableStateOf(false) }
         val context = LocalContext.current
+
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val imeInsets = WindowInsets.ime
+        val navBarInsets = WindowInsets.navigationBars
+        val bottomInset = imeInsets.getBottom(density)
+        val navBarBottom = navBarInsets.getBottom(density)
+
+        // Persistence logic
+        val savedHeight = remember { getSavedKeyboardHeight() }
+        LaunchedEffect(bottomInset) {
+            if (bottomInset > 200) { // Filter out nav bar or 0
+                saveKeyboardHeight(bottomInset)
+            }
+        }
+
+        val effectiveBottomPadding = maxOf(bottomInset, savedHeight, navBarBottom)
 
         // Ensure focus is requested when UI appears
         LaunchedEffect(Unit) { onFocusRequest() }
@@ -308,8 +334,9 @@ class SearchWindowManager(private val context: Context, private val windowManage
                     modifier =
                             Modifier.fillMaxSize()
                                     .padding(16.dp)
-                                    .navigationBarsPadding()
-                                    .imePadding(),
+                                    .padding(
+                                            bottom = with(density) { effectiveBottomPadding.toDp() }
+                                    ),
                     verticalArrangement = Arrangement.Bottom
             ) {
                 // Results (displayed above search bar)
